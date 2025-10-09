@@ -15,10 +15,10 @@ def main():
     ce.define_constant('Kp', value = 300)
     ce.define_constant('Ki', value = 70)
     # ce.define_f('t**2')
-    # ce.define_F('1/(M*s**2 + B*s + K)')
+    ce.define_F('1/(M*s**2 + B*s + K)')
     # ce.define_F('11/6*60/(s*(s+1)*(s+10))')
     # ce.define_F('12/((s+1)*(s**2+2.8*s+4))')
-    ce.define_F('12/((s+1)*(s**2+2.8*s+4))+(s+1)')
+    # ce.define_F('12/((s+1)*(s**2+2.8*s+4))+(s+1)')
     # ce.define_F('sqrt(2)/(s+1)')
     # define an F(s) with zeros and poles
     # ce.print()
@@ -36,6 +36,7 @@ def main():
     # ce.nyquist()
     # ce.root_locus()
     # ce.margin_plot()
+    ce.pzmap()
 
 if __name__ == "__main__":
     main()

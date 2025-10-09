@@ -412,3 +412,93 @@ class ControlEnvironment:
 
         plt.tight_layout()
         plt.show()
+
+    def pzmap(self, x_range=(), y_range=(), num_points=1000):
+        if self.F is None:
+            raise ValueError("Laplace-domain function F(s) is not defined.")
+
+        poles = self.poles(print_poles=False)
+        zeros = self.zeros(print_zeros=False)
+      
+        # scale x_range and y_range so that constant natural frequencies (circles) and damping ratios (lines) are drawn symmetrically
+
+
+        if x_range == ():
+            all_points = []
+            all_points += [(0.0, 0.0)]
+            if poles is not None:
+                all_points += [p.evalf().as_real_imag() for p in poles]
+            if zeros is not None:
+                all_points += [z.evalf().as_real_imag() for z in zeros]
+            if all_points:
+                real_parts = [pt[0] for pt in all_points]
+                imag_parts = [pt[1] for pt in all_points]
+
+                real_min = float(min(real_parts))
+                real_max = float(max(real_parts))
+                imag_max = float(max(np.abs(imag_parts)))
+
+                # Ceil x_min (if negative) -1, -10, -100 and floor x_min (if positive) to the closest 1, 10, 100, etc. depending on magnitude
+                if real_min < 0:
+                    x_min = -10**(np.ceil(np.log10(abs(real_min))))
+                else:
+                    x_min = 10**(np.floor(np.log10(abs(real_min)))) if real_min != 0 else -1
+                                    
+                # Ceil x_max (if negative) -1, -10, -100 and floor x_max (if positive) to the closest 1, 10, 100, etc. depending on magnitude
+                if real_max < 0:
+                    x_max = -10**(np.floor(np.log10(abs(real_max))))
+                else:
+                    x_max = 10**(np.ceil(np.log10(abs(real_max)))) if real_max != 0 else 0.1
+
+                y_max = 10**(np.ceil(np.log10(abs(imag_max)))) * (1 if imag_max > 0 else -1) if imag_max != 0 else 1
+
+                x_range = (x_min, x_max)
+                y_range = (-y_max, y_max)
+
+        plt.figure()
+        if zeros:
+            plt.scatter([z.evalf().as_real_imag()[0] for z in zeros],
+                        [z.evalf().as_real_imag()[1] for z in zeros],
+                        marker='o', color='blue', label='Zeros')
+        if poles:
+            plt.scatter([p.evalf().as_real_imag()[0] for p in poles],
+                        [p.evalf().as_real_imag()[1] for p in poles],
+                        marker='x', color='red', label='Poles')
+        zeta_vals = [0.1, 0.2, 0.3, 0.5, 0.7, 0.9]
+        for zeta in zeta_vals:
+            if zeta >= 1:
+                continue
+            theta = np.arccos(zeta)
+            if np.tan(theta) != 0:
+                slope = np.tan(theta)
+                x_vals = np.linspace(x_range[0], x_range[1], num_points)
+                y_vals_pos = slope * x_vals
+                y_vals_neg = -slope * x_vals
+                plt.plot(x_vals, y_vals_pos, linestyle='--', color='gray', linewidth=0.5)
+                plt.plot(x_vals, y_vals_neg, linestyle='--', color='gray', linewidth=0.5)
+                # Place text in the top left quadrant of the plot
+                if zeta < 0.8:
+                    y_text = y_range[1] * 0.8
+                    x_text = y_text / -slope
+                    plt.text(x_text, y_text, f'ζ={zeta}', color='gray', horizontalalignment='left')
+                else:
+                    x_text = x_range[0] * 0.8
+                    y_text = -slope * x_text
+                    plt.text(x_text, y_text, f'ζ={zeta}', color='gray', horizontalalignment='left')
+        # Plot circles for natural frequencies
+        wn_vals = np.linspace(0, x_range[0], 5)
+        for wn in wn_vals:
+            circle = plt.Circle((0, 0), wn, color='gray', fill=False, linestyle='--', linewidth=0.5)
+            plt.gca().add_artist(circle)
+            plt.text(wn, 0, f'ωn={wn}', color='gray', horizontalalignment='left')
+        plt.axvline(0, color='black', lw=0.5, linestyle='-')
+        plt.xlim(x_range)
+        plt.ylim(y_range)
+        plt.axhline(0, color='black', lw=0.5)
+        plt.axvline(0, color='black', lw=0.5)
+        plt.title('Pole-Zero Map')
+        plt.xlabel('Real')
+        plt.ylabel('Imaginary')
+        plt.grid(True)
+        plt.legend(loc='lower left')
+        plt.show()
