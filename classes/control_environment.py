@@ -56,7 +56,7 @@ class ControlEnvironment:
         if print_output:
             print(f"Defined equation: F(s) = {self.F}")
             print(f"Inverse Laplace Transform f(t) = {self.f}")
-
+    
     def print_symbols(self):
         print("Defined symbols:")
         for sym in self.symbols_list:
@@ -391,7 +391,6 @@ class ControlEnvironment:
         plt.xlim(w_range)
         plt.yticks(np.arange(mag_min, mag_max, 20))
         plt.grid(True)
-        # Gain Margin line
         if wcp is not None:
             plt.axvline(wcp, color='red', linestyle='--')
             plt.axhline(-gm, color='red', linestyle='--')
@@ -404,7 +403,6 @@ class ControlEnvironment:
         plt.ylabel('Phase (degrees)')
         plt.yticks(np.arange(phase_min, phase_max, 45))
         plt.grid(True)
-        # Phase Margin line
         if wcg is not None:
             plt.axvline(wcg, color='green', linestyle='--')
             plt.axhline(-180 + pm, color='green', linestyle='--')
@@ -419,9 +417,6 @@ class ControlEnvironment:
 
         poles = self.poles(print_poles=False)
         zeros = self.zeros(print_zeros=False)
-      
-        # scale x_range and y_range so that constant natural frequencies (circles) and damping ratios (lines) are drawn symmetrically
-
 
         if x_range == ():
             all_points = []
@@ -438,13 +433,11 @@ class ControlEnvironment:
                 real_max = float(max(real_parts))
                 imag_max = float(max(np.abs(imag_parts)))
 
-                # Ceil x_min (if negative) -1, -10, -100 and floor x_min (if positive) to the closest 1, 10, 100, etc. depending on magnitude
                 if real_min < 0:
                     x_min = -10**(np.ceil(np.log10(abs(real_min))))
                 else:
                     x_min = 10**(np.floor(np.log10(abs(real_min)))) if real_min != 0 else -1
                                     
-                # Ceil x_max (if negative) -1, -10, -100 and floor x_max (if positive) to the closest 1, 10, 100, etc. depending on magnitude
                 if real_max < 0:
                     x_max = -10**(np.floor(np.log10(abs(real_max))))
                 else:
@@ -476,7 +469,6 @@ class ControlEnvironment:
                 y_vals_neg = -slope * x_vals
                 plt.plot(x_vals, y_vals_pos, linestyle='--', color='gray', linewidth=0.5)
                 plt.plot(x_vals, y_vals_neg, linestyle='--', color='gray', linewidth=0.5)
-                # Place text in the top left quadrant of the plot
                 if zeta < 0.8:
                     y_text = y_range[1] * 0.8
                     x_text = y_text / -slope
@@ -485,7 +477,6 @@ class ControlEnvironment:
                     x_text = x_range[0] * 0.8
                     y_text = -slope * x_text
                     plt.text(x_text, y_text, f'ζ={zeta}', color='gray', horizontalalignment='left')
-        # Plot circles for natural frequencies
         wn_vals = np.linspace(0, x_range[0], 5)
         for wn in wn_vals:
             circle = plt.Circle((0, 0), wn, color='gray', fill=False, linestyle='--', linewidth=0.5)
@@ -502,3 +493,4 @@ class ControlEnvironment:
         plt.grid(True)
         plt.legend(loc='lower left')
         plt.show()
+    

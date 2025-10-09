@@ -1,9 +1,5 @@
 from classes.control_environment import ControlEnvironment
 
-import sympy as sp
-from sympy import *
-init_printing(use_latex='mathjax')
-
 ce = ControlEnvironment('test')
 
 def main():
