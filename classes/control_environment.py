@@ -1,7 +1,7 @@
 import sympy as sp
 import numpy as np
 import matplotlib
-matplotlib.use('Qt5Agg')
+matplotlib.use('QtAgg')
 import matplotlib.pyplot as plt
 
 class ControlEnvironment:
