@@ -224,6 +224,7 @@ class ControlEnvironment:
         
         num, den = sp.fraction(sp.simplify(self.F.subs(self.constants_list)))
         poles = sp.roots(den, s)
+        poles = list(poles.keys())
         if print_poles:
             print("Poles:")
             for p in poles:
@@ -236,11 +237,12 @@ class ControlEnvironment:
         
         num, den = sp.fraction(sp.simplify(self.F.subs(self.constants_list)))
         zeros = sp.roots(num, s)
+        zeros = list(zeros.keys())
         if print_zeros:
             print("Zeros:")
             for z in zeros:
                 print(f"  {z}")
-            return zeros
+        return zeros
 
     def nyquist(self, w_range=(0.1, 100), num_points=1000):
         if self.F is None:
