@@ -14,49 +14,48 @@ class ControlEnvironment:
         self.define_variable('s')
         self.define_variable('t', real=True)
 
-    def define_variable(self, *names, **assumptions):
-        symbol = sp.symbols(' '.join(names), **assumptions)
-        
-        if not isinstance(symbol, tuple):
-            symbol = (symbol,)
+    def evalf(self, func: str):
+        if 'exp' in func and '.exp' not in func:
+            func = func.replace('exp', 'sp.exp')
+        if 'sin' in func and '.sin' not in func:
+            func = func.replace('sin', 'sp.sin')
+        if 'cos' in func and '.cos' not in func:
+            func = func.replace('cos', 'sp.cos')
+        if 'sqrt' in func and '.sqrt' not in func:
+            func = func.replace('sqrt', 'sp.sqrt')
+        return eval(func)
 
-        for sym in symbol:
-            self.symbols_list.append(sym)
-            print(f"Defined symbol: {sym} with assumptions {assumptions}")
-        self.define_global_symbols()
-
-    def define_constant(self, name, value):
-        symbol = sp.symbols(name, real=True)
+    def define_variable(self, name: str, print_output=False, **assumptions):
+        symbol = sp.symbols(name, **assumptions)
         self.symbols_list.append(symbol)
-        self.constants_list[symbol] = value
-        print(f"Defined constant: {symbol} = {value}")
         self.define_global_symbols()
+        if print_output:
+            print(f"Defined symbol: {symbol} with assumptions {assumptions}")
+        return symbol
+
+    def define_constant(self, name, value, print_output=False):
+        symbol = self.define_variable(name, real=True)
+        self.constants_list[symbol] = value
+        if print_output:
+            print(f"Defined constant: {symbol} = {value}")
 
     def define_global_symbols(self):
         for sym in self.symbols_list:
             globals()[str(sym)] = sym
 
-    def define_f(self, f: str):
-        if 'exp' in f and '.exp' not in f:
-            f = f.replace('exp', 'sp.exp')
-        if 'sin' in f and '.sin' not in f:
-            f = f.replace('sin', 'sp.sin')
-        if 'cos' in f and '.cos' not in f:
-            f = f.replace('cos', 'sp.cos')
-        if 'sqrt' in f and '.sqrt' not in f:
-            f = f.replace('sqrt', 'sp.sqrt')
-        self.f = eval(f)
-        print(f"Defined equation: f(t) = {self.f}")
+    def define_f(self, f: str, print_output=False):
+        self.f = self.evalf(f)
         self.F = self.L(self.f)
-        print(f"Laplace Transform F(s) = {self.F}")
+        if print_output:
+            print(f"Defined equation: f(t) = {self.f}")
+            print(f"Laplace Transform F(s) = {self.F}")
 
-    def define_F(self, F: str):
-        if 'sqrt' in F and '.sqrt' not in F:
-            F = F.replace('sqrt', 'sp.sqrt')
-        self.F = eval(F)
-        print(f"Defined equation: F(s) = {self.F}")
+    def define_F(self, F: str, print_output=False):
+        self.F = self.evalf(F)
         self.f = self.invL(self.F)
-        print(f"Inverse Laplace Transform f(t) = {self.f}")
+        if print_output:
+            print(f"Defined equation: F(s) = {self.F}")
+            print(f"Inverse Laplace Transform f(t) = {self.f}")
 
     def print_symbols(self):
         print("Defined symbols:")
@@ -335,7 +334,7 @@ class ControlEnvironment:
 
         return gm, pm, wcp, wcg
 
-    def determine_w_range(self,print_range=True):
+    def determine_w_range(self,print_range=False):
         if self.F is None:
             raise ValueError("Laplace-domain function F(s) is not defined.")
         poles = self.poles(print_poles=False)
@@ -351,7 +350,6 @@ class ControlEnvironment:
             max_freq = 10**(np.ceil(np.log10(max_freq)))*10 if max_freq > 0 else 10
             w_range = (min_freq, max_freq)
             if print_range:
-                print("w_range =", w_range, type(w_range))
                 print(f"Auto-determined frequency range: {w_range}")
             return w_range
         else:
