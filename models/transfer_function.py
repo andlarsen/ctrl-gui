@@ -2,7 +2,7 @@ import sympy as sp
 import numpy as np
 from classes.defs_sympy import *
 
-class Function:
+class TransferFunction:
     def __init__(self,global_variables, global_constants):
         self.symbols = []
         self.variables = global_variables
@@ -49,15 +49,11 @@ class Function:
     def get_constant_values(self):
         return {sp.Symbol(name): data["value"] for name, data in self.constants.items()}
 
-    def define_yt(self, yt: str):
-        self.yt = string_input(yt)
-        self.tf = L(yt)
-        self.yt = invL(self.tf)
-
     def define_tf(self, tf: str):
-        self.tf = string_input(tf)
-        self.yt = invL(self.tf)
-        self.tf = L(self.yt)
+        self.tf = tf_from_string(string_input(tf))
+
+    def define_tf_coefs(self,num_coefs=[],den_coefs=[]):
+        self.tf = tf_from_coefs(num_coefs,den_coefs)
 
     def print_symbols(self):
         print("Symbols:")
@@ -83,7 +79,7 @@ class Function:
         print(f"Output  {symbol}, is_real: {symbol.is_real}, is_positive: {symbol.is_positive}")
 
     def print_tf(self):
-        print(f"Transfer function: G(s) = {self.tf}")
+        print(f"Transfer function: G(s) = {sp.simplify(self.tf)}")
 
     def print_all(self):
         self.print_symbols()
@@ -91,6 +87,33 @@ class Function:
         self.print_constants()
         self.print_tf()
 
+    ## Functions
+
+    def poles(self, print_poles=True):
+        if self.tf is None:
+            raise ValueError("Laplace-domain function F(s) is not defined.")
+        
+        tf = self.tf.subs(self.get_constant_values())
+        den = get_denominator(tf)
+        poles = roots(den)
+        if print_poles:
+            print("Poles:")
+            for p in poles:
+                print(f"  {p}")
+        return poles
+
+    def zeros(self,print_zeros=True):
+        if self.tf is None:
+            raise ValueError("Laplace-domain function F(s) is not defined.")
+        
+        tf = self.tf.subs(self.get_constant_values())
+        num = get_numerator(tf)
+        zeros = roots(num)
+        if print_zeros:
+            print("Zeros:")
+            for p in zeros:
+                print(f"  {p}")
+        return zeros
 
 
     ## Plots
@@ -167,3 +190,46 @@ class Function:
         plt.grid(True)
         plt.legend()
         plt.show()
+
+
+    # def bode(self, w_range=(), num_points=10000):
+    #     if self.tf is None:
+    #         raise ValueError("Laplace-domain function F(s) is not defined.")
+
+    #     w_range = self.determine_w_range() if not w_range else (0.1, 100)
+
+    #     w_vals = np.logspace(np.log10(w_range[0]), np.log10(w_range[1]), num_points)
+    #     s_vals = 1j * w_vals
+    #     F_func = sp.lambdify(s, self.F.subs(self.constants_list), modules=['numpy'])
+    #     F_vals = F_func(s_vals)
+
+    #     magnitude = 20 * np.log10(np.abs(F_vals))
+    #     phase = np.unwrap(np.angle(F_vals))  * (180/np.pi)
+        
+    #     mag_max = np.ceil(np.max(magnitude) / 20) * 20
+    #     mag_min = np.floor(np.min(magnitude) / 20) * 20
+
+    #     phase_max = np.ceil(np.max(phase) / 90) * 90
+    #     phase_min = np.floor(np.min(phase) / 90) * 90
+
+    #     plt.figure(figsize=(10, 8))
+
+    #     plt.subplot(2, 1, 1)
+    #     plt.semilogx(w_vals, magnitude)
+    #     plt.title('Bode Plot')
+    #     plt.ylabel('Magnitude (dB)')
+    #     plt.xlim(w_range)
+    #     plt.yticks(np.arange(mag_min, mag_max, 20))
+    #     plt.grid(True)
+
+    #     plt.subplot(2, 1, 2)
+    #     plt.semilogx(w_vals, phase)
+    #     plt.xlabel('Frequency (rad/s)')
+    #     plt.xlim(w_range)
+    #     plt.ylabel('Phase (degrees)')
+    #     plt.yticks(np.arange(phase_min, phase_max, 45))
+    #     plt.grid(True)
+
+    #     plt.tight_layout()
+    #     plt.show()
+    

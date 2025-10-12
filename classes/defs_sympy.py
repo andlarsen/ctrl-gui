@@ -26,12 +26,28 @@ def remove_symbol(name: str, symbol_list: list, print_output=False):
         print(f"Symbol '{name}' not found.")   
     return  
 
+def get_numerator(function):
+    num, den = sp.fraction(sp.simplify(function))
+    return num
+
+def get_denominator(function):
+    num, den = sp.fraction(sp.simplify(function))
+    return den
+
+def roots(polynomium):
+    s, t = define_st()
+    roots = sp.roots(polynomium, s)
+    roots = list(roots.keys())
+    return roots
+
 def L(f):
     s, t = define_st()
+    # var = add_symbol(var)
     return sp.laplace_transform(f, t, s, noconds=True)
 
 def invL(F):
     s, t = define_st()
+    # var = add_symbol(var)
     return sp.inverse_laplace_transform(F, s, t)
 
 def delay_function(delay_time):
@@ -72,3 +88,25 @@ def string_input(func: str):
     if 'sqrt' in func and 'sp.sqrt' not in func:
         func = func.replace('sqrt', 'sp.sqrt')
     return func
+
+def tf_from_string(tf_str):
+    return sp.simplify(string_input(tf_str))
+
+def tf_from_coefs(num_coefs,den_coefs):
+    s, t = define_st()
+
+    num_coefs = [to_sympy_expr(c) for c in num_coefs]
+    den_coefs = [to_sympy_expr(c) for c in den_coefs]
+
+    # Build numerator and denominator polynomials from coefficient lists
+    num = sum(coef * s**i for i, coef in enumerate(reversed(num_coefs)))
+    den = sum(coef * s**i for i, coef in enumerate(reversed(den_coefs)))
+    
+    # Create the transfer function (symbolically)
+    return sp.simplify(num / den)
+
+def to_sympy_expr(x):
+        if isinstance(x, str):
+            return sp.sympify(x)
+        return sp.sympify(x)
+
