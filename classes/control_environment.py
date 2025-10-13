@@ -1,10 +1,7 @@
-import sympy as sp
-import numpy as np
 import matplotlib
 matplotlib.use('QtAgg')
 import matplotlib.pyplot as plt
 from models.transfer_function import TransferFunction
-from classes.defs_sympy import *
 from typing import Dict
 
 class ControlEnvironment:
