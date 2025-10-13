@@ -1,32 +1,46 @@
 import sympy as sp
 import numpy as np
-from classes.defs_sympy import *
+import classes.defs_sympy as defs_sympy
+import matplotlib
+matplotlib.use('QtAgg')
+import matplotlib.pyplot as plt
 
 class TransferFunction:
     def __init__(self,global_variables, global_constants):
         self.symbols = []
+        self.functions =  []
         self.variables = global_variables
         self.constants = global_constants
         self.local_variables = []
         self.local_constants = {}
         self.input = None
         self.output = None
-        self.yt = None
+        self.lhs = None
+        self.rhs = None
         self.tf = None
+        self.num = None
+        self.den = None
         self.define_input('u')
         self.define_output('y')
 
     def define_input(self, name: str):
-        if self.input != None:
-            remove_symbol(self.input, self.symbols)
-        self.input = add_symbol(name, is_real=True)
-        self.symbols.append(self.input)
+        # if self.input != None:
+        #     remove_symbol(self.input, self.symbols)
+        self.input = defs_sympy.add_function(name)
+        self.functions.append(self.input)
 
     def define_output(self, name: str):
-        if self.output != None:
-            remove_symbol(self.output, self.symbols)
-        self.output = add_symbol(name, is_real=True)
-        self.symbols.append(self.output)
+        # if self.output != None:
+        #     remove_symbol(self.output, self.symbols)
+        self.output = defs_sympy.add_function(name)
+        self.functions.append(self.output)
+        # self.output = name
+
+    def define_lhs(self,string_input: str):
+        self.lhs = string_input
+
+    def define_rhs(self,string_input: str):
+        self.rhs = string_input
 
     def add_variable(self):
         pass
@@ -35,7 +49,7 @@ class TransferFunction:
         pass
 
     def add_constant(self, name: str, value: float, description='None', unit='-'):
-        symbol = add_symbol(name, is_real=True)
+        symbol = defs_sympy.add_symbol(name, is_real=True)
         self.symbols.append(symbol)
         self.constants[name] = {
             "value": value,
@@ -49,11 +63,24 @@ class TransferFunction:
     def get_constant_values(self):
         return {sp.Symbol(name): data["value"] for name, data in self.constants.items()}
 
-    def define_tf(self, tf: str):
-        self.tf = tf_from_string(string_input(tf))
+    def define_tf_from_string(self, tf: str):
+        self.tf = defs_sympy.tf_from_string(defs_sympy.translate_string(tf),self.constants)
+        self.num = defs_sympy.get_numerator(self.tf)
+        self.den = defs_sympy.get_denominator(self.tf)
+        self.lhs, self.rhs = defs_sympy.get_equation(self.tf,input_symbol=self.input,output_symbol=self.output,constants=self.constants)
 
-    def define_tf_coefs(self,num_coefs=[],den_coefs=[]):
-        self.tf = tf_from_coefs(num_coefs,den_coefs)
+    def define_tf_from_coefs(self,num_coefs=[],den_coefs=[]):
+        self.tf = defs_sympy.tf_from_coefs(num_coefs,den_coefs,self.constants)
+        self.num = defs_sympy.get_numerator(self.tf)
+        self.den = defs_sympy.get_denominator(self.tf)
+        self.lhs, self.rhs = defs_sympy.get_equation(self.tf,input_symbol=self.input,output_symbol=self.output,constants=self.constants)
+
+    def define_tf_from_equation(self,lhs,rhs):
+        self.lhs = lhs
+        self.rhs = rhs
+        self.tf = defs_sympy.tf_from_equation(lhs,rhs,input_symbol=self.input,output_symbol=self.output,constants=self.constants)
+        self.num = defs_sympy.get_numerator(self.tf)
+        self.den = defs_sympy.get_denominator(self.tf)
 
     def print_symbols(self):
         print("Symbols:")
@@ -71,21 +98,42 @@ class TransferFunction:
             print(f"  {symbol}: {data['value']} {data['unit']} - {data['description']}")
 
     def print_input(self):
-        symbol = self.input
-        print(f"Input:  {symbol}, is_real: {symbol.is_real}, is_positive: {symbol.is_positive}")
+        print(f"Input function: {self.input}")
 
     def print_output(self):
-        symbol = self.output
-        print(f"Output  {symbol}, is_real: {symbol.is_real}, is_positive: {symbol.is_positive}")
+        print(f"Output function: {self.output}")
+
+    def print_lhs(self):
+        print(f"LHS: {self.lhs}")
+
+    def print_rhs(self):
+        print(f"RHS: {self.rhs}")
+
+    def print_equation(self):
+        print(f"{self.lhs} = {self.rhs}")
 
     def print_tf(self):
+        if self.tf is None:
+            print("Laplace-domain function F(s) is not defined.")
+            return
         print(f"Transfer function: G(s) = {sp.simplify(self.tf)}")
+    
+    def print_numerator(self):
+        print(f"Numerator: {self.num}")
+
+    def print_denominator(self):
+        print(f"Denominator: {self.den}")
 
     def print_all(self):
         self.print_symbols()
         self.print_variables()
         self.print_constants()
+        self.print_input()
+        self.print_output()
+        self.print_equation()
         self.print_tf()
+        self.print_numerator()
+        self.print_denominator()
 
     ## Functions
 
@@ -94,8 +142,8 @@ class TransferFunction:
             raise ValueError("Laplace-domain function F(s) is not defined.")
         
         tf = self.tf.subs(self.get_constant_values())
-        den = get_denominator(tf)
-        poles = roots(den)
+        den = defs_sympy.get_denominator(tf)
+        poles = defs_sympy.roots(den)
         if print_poles:
             print("Poles:")
             for p in poles:
@@ -107,7 +155,7 @@ class TransferFunction:
             raise ValueError("Laplace-domain function F(s) is not defined.")
         
         tf = self.tf.subs(self.get_constant_values())
-        num = get_numerator(tf)
+        num = defs_sympy.get_numerator(tf)
         zeros = roots(num)
         if print_zeros:
             print("Zeros:")
@@ -157,11 +205,12 @@ class TransferFunction:
         if self.tf is None:
             raise ValueError("Laplace-domain function F(s) is not defined.")
         
-        step = step_function(delay_time)
-        Y = self.tf*step
-        yt = invL(Y).subs(self.get_constant_values())
+        step = defs_sympy.step_function(delay_time)
+        Y = self.tf#*step
+        print(type(self.tf))
+        yt = defs_sympy.invL(Y).subs(self.get_constant_values())
 
-        t_vals, yt_vals = lambdify(yt, t_range, num_points)
+        t_vals, yt_vals = defs_sympy.lambdify(yt, t_range, num_points)
 
         plt.figure()
         plt.plot(t_vals, yt_vals, label='y(t)')
