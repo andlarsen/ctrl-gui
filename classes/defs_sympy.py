@@ -61,23 +61,34 @@ def get_equation(tf,input_symbol,output_symbol,constants):
     locals().update(sympy_symbols)
 
     G_num, G_den = sp.fraction(tf)
-    LHS_L = G_den * Y
+    RHS_L = sp.expand(G_num * U)
+    LHS_L = sp.expand(G_den * Y)
+
+    # U = sp.Function('U')
+    # Y = sp.Function('Y')
     subs_dict_corrected = {
-        s**2 * Y: sp.Derivative(y, (t, 2)),
-        s * Y: sp.Derivative(y, t),
+        s**10*Y: sp.Derivative(y, (t, 10)),
+        s**9*Y: sp.Derivative(y, (t, 9)),
+        s**8*Y: sp.Derivative(y, (t, 8)),
+        s**7*Y: sp.Derivative(y, (t, 7)),
+        s**6*Y: sp.Derivative(y, (t, 6)),
+        s**5*Y: sp.Derivative(y, (t, 5)),
+        s**4*Y: sp.Derivative(y, (t, 4)),
+        s**3*Y: sp.Derivative(y, (t, 3)),
+        s**2*Y: sp.Derivative(y, (t, 2)),
+        s*Y: sp.Derivative(y, t),
         Y: y
     }
-    LHS_L_expanded = sp.expand(LHS_L)
-    lhs = LHS_L_expanded.subs(subs_dict_corrected)
 
-    RHS_L = G_num * U
+    print(LHS_L)
+    lhs = LHS_L.subs(subs_dict_corrected)
+    print(lhs)
     subs_dict_corrected = {
-        s**2 * U: sp.Derivative(u, (t, 2)),
-        s * U: sp.Derivative(u, t),
+        s**2*U: sp.Derivative(u, (t, 2)),
+        s*U: sp.Derivative(u, t),
         U: u
     }
-    RHS_L_expanded = sp.expand(RHS_L)
-    rhs = RHS_L_expanded.subs(subs_dict_corrected)
+    rhs = RHS_L.subs(subs_dict_corrected)
 
     return lhs, rhs
 
@@ -89,12 +100,10 @@ def roots(polynomium):
 
 def L(ft):
     s, t = define_st()
-    # var = add_symbol(var)
     return sp.laplace_transform(ft, t, s, noconds=True)
 
 def invL(Fs):
     s, t = define_st()
-    # var = add_symbol(var)
     return sp.inverse_laplace_transform(Fs, s, t)
 
 def delay_function(delay_time):
@@ -127,12 +136,10 @@ def lambdify(y, t_range=(0, 10), num_points = 1000):
 
 def tf_from_string(tf_str,constants):
     s, t = define_st()
-    # Load constants
-    sympy_symbols = {}
+    symbols = {'s': s, 't': t}
     for name, const_data in constants.items():
-        symbol_value = const_data["symbol"]
-        sympy_symbols[name] = symbol_value
-    locals().update(sympy_symbols)
+        symbols[name] = sp.Symbol(name)
+    locals().update(symbols)
 
     tf = eval(translate_string(tf_str))
 
@@ -140,17 +147,15 @@ def tf_from_string(tf_str,constants):
 
 def tf_from_coefs(num_coefs,den_coefs,constants):
     s, t = define_st() 
-
-    symbol_dict = {'s': s}
-
+    symbols = {'s': s, 't': t}
     for name, const_data in constants.items():
-        symbol_value = const_data["symbol"]
-        symbol_dict[name] = sp.Symbol(name) 
+        symbols[name] = sp.Symbol(name) 
+    locals().update(symbols)
     
     def evaluate_coefficient(coef_input):
         if isinstance(coef_input, (sp.Expr, sp.Number)):
             return coef_input
-        return sp.sympify(coef_input, locals=symbol_dict)
+        return sp.sympify(coef_input, locals=symbols)
 
     num_exprs = [evaluate_coefficient(c) for c in num_coefs]
     den_exprs = [evaluate_coefficient(c) for c in den_coefs]
@@ -161,7 +166,7 @@ def tf_from_coefs(num_coefs,den_coefs,constants):
     order_den = len(den_exprs) - 1
     den = sum(coef * s**(order_den - i) for i, coef in enumerate(den_exprs))
 
-    tf = (num / den)
+    tf = sp.simplify(num / den)
 
     return tf
 
@@ -208,7 +213,7 @@ def generate_ic_symbols(func_name, order):
             func_name = f"{func_name}d"
         return f"{func_name}ot0"
     
-def make_ic_subs(expr: str, func, t, ic_values_in=[]):
+def make_ic_subs(expr: str, func, var, ic_values_in=[]):
     max_order = find_n_derivatives(expr)
     if ic_values_in == []:
         ic_values_in = np.zeros(max_order+1)
@@ -218,7 +223,7 @@ def make_ic_subs(expr: str, func, t, ic_values_in=[]):
         name = generate_ic_symbols(func_name, n)
         sym = sp.Symbol(name)
         ic_symbols[name] = sym
-        ic_subs[sp.diff(func, t, n).subs(t, 0)] = sym
+        ic_subs[sp.diff(func, var, n).subs(var, 0)] = sym
         ic_values[sym] = ic_values_in[n]
     return ic_subs, ic_symbols, ic_values
 
@@ -235,19 +240,16 @@ def define_constant_values(constants):
 
 def tf_from_equation(lhs,rhs,input_symbol,output_symbol,constants):
     s, t = define_st()
+    symbols = {'s': s, 't': t}
+    for name, const_data in constants.items():
+        symbols[name] = sp.Symbol(name)
+    locals().update(symbols)
 
     # Load inputs and outputs
     u = input_symbol[0]
     y = output_symbol[0]
     U = input_symbol[1]
     Y = output_symbol[1]
-
-    # Load constants
-    sympy_symbols = {}
-    for name, const_data in constants.items():
-        symbol_value = const_data["symbol"]
-        sympy_symbols[name] = symbol_value
-    locals().update(sympy_symbols)
     
     # Create initial condition symbols and values
     subs_ic = {}
@@ -283,5 +285,5 @@ def tf_from_equation(lhs,rhs,input_symbol,output_symbol,constants):
     Y_s = Y_s.subs(ics)
 
     # Transfer function G(s) = X(s)/F(s)
-    G = sp.simplify(Y_s / U)
-    return G
+    tf = sp.simplify(Y_s / U)
+    return tf
