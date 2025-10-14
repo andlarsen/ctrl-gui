@@ -36,62 +36,6 @@ def add_function(name: str):
 def remove_function():
     pass
 
-def get_numerator(tf):
-    num, den = sp.fraction(sp.simplify(tf))
-    return num
-
-def get_denominator(tf):
-    num, den = sp.fraction(sp.simplify(tf))
-    return den
-
-def get_equation(tf,input_symbol,output_symbol,constants):
-    s, t = define_st()
-
-    # Load inputs and outputs
-    u = input_symbol[0]
-    y = output_symbol[0]
-    U = input_symbol[1]
-    Y = output_symbol[1]
-
-    # Load constants
-    sympy_symbols = {}
-    for name, const_data in constants.items():
-        symbol_value = const_data["symbol"]
-        sympy_symbols[name] = symbol_value
-    locals().update(sympy_symbols)
-
-    G_num, G_den = sp.fraction(tf)
-    RHS_L = sp.expand(G_num * U)
-    LHS_L = sp.expand(G_den * Y)
-
-    # U = sp.Function('U')
-    # Y = sp.Function('Y')
-    subs_dict_corrected = {
-        s**10*Y: sp.Derivative(y, (t, 10)),
-        s**9*Y: sp.Derivative(y, (t, 9)),
-        s**8*Y: sp.Derivative(y, (t, 8)),
-        s**7*Y: sp.Derivative(y, (t, 7)),
-        s**6*Y: sp.Derivative(y, (t, 6)),
-        s**5*Y: sp.Derivative(y, (t, 5)),
-        s**4*Y: sp.Derivative(y, (t, 4)),
-        s**3*Y: sp.Derivative(y, (t, 3)),
-        s**2*Y: sp.Derivative(y, (t, 2)),
-        s*Y: sp.Derivative(y, t),
-        Y: y
-    }
-
-    print(LHS_L)
-    lhs = LHS_L.subs(subs_dict_corrected)
-    print(lhs)
-    subs_dict_corrected = {
-        s**2*U: sp.Derivative(u, (t, 2)),
-        s*U: sp.Derivative(u, t),
-        U: u
-    }
-    rhs = RHS_L.subs(subs_dict_corrected)
-
-    return lhs, rhs
-
 def roots(polynomium):
     s, t = define_st()
     roots = sp.roots(polynomium, s)
@@ -133,51 +77,6 @@ def lambdify(y, t_range=(0, 10), num_points = 1000):
     y_func = sp.lambdify(t, y, modules=['numpy'])
     y_vals = y_func(t_vals)
     return t_vals, y_vals
-
-def tf_from_string(tf_str,constants):
-    s, t = define_st()
-    symbols = {'s': s, 't': t}
-    for name, const_data in constants.items():
-        symbols[name] = sp.Symbol(name)
-    locals().update(symbols)
-
-    tf = eval(translate_string(tf_str))
-
-    return sp.simplify(tf)
-
-def tf_from_coefs(num_coefs,den_coefs,constants):
-    s, t = define_st() 
-    symbols = {'s': s, 't': t}
-    for name, const_data in constants.items():
-        symbols[name] = sp.Symbol(name) 
-    locals().update(symbols)
-    
-    def evaluate_coefficient(coef_input):
-        if isinstance(coef_input, (sp.Expr, sp.Number)):
-            return coef_input
-        return sp.sympify(coef_input, locals=symbols)
-
-    num_exprs = [evaluate_coefficient(c) for c in num_coefs]
-    den_exprs = [evaluate_coefficient(c) for c in den_coefs]
-    
-    order_num = len(num_exprs) - 1
-    num = sum(coef * s**(order_num - i) for i, coef in enumerate(num_exprs))
-    
-    order_den = len(den_exprs) - 1
-    den = sum(coef * s**(order_den - i) for i, coef in enumerate(den_exprs))
-
-    tf = sp.simplify(num / den)
-
-    return tf
-
-def to_sympy_expr(x):
-        if isinstance(x, str):
-            return sp.sympify(x)
-        return sp.sympify(x)
-
-def integrate(function):
-    s, t = define_st()
-    return sp.integrate(function,t)
 
 def translate_string(string_input: str):
     # Insert functions as sympy
@@ -232,11 +131,41 @@ def capitalize_first(string_input: str) -> str:
         return string_input
     return string_input[0].upper() + string_input[1:]
 
-def define_constant_symbols(constants):
-    return [sp.Symbol(name) for name, data in constants.items()]
+def tf_from_string(tf_str,constants):
+    s, t = define_st()
+    symbols = {'s': s, 't': t}
+    for name, const_data in constants.items():
+        symbols[name] = sp.Symbol(name)
+    locals().update(symbols)
 
-def define_constant_values(constants):
-    return {sp.Symbol(name): data["value"] for name, data in constants.items()}
+    tf = eval(translate_string(tf_str))
+
+    return sp.simplify(tf)
+
+def tf_from_coefs(num_coefs,den_coefs,constants):
+    s, t = define_st() 
+    symbols = {'s': s, 't': t}
+    for name, const_data in constants.items():
+        symbols[name] = sp.Symbol(name) 
+    locals().update(symbols)
+    
+    def evaluate_coefficient(coef_input):
+        if isinstance(coef_input, (sp.Expr, sp.Number)):
+            return coef_input
+        return sp.sympify(coef_input, locals=symbols)
+
+    num_exprs = [evaluate_coefficient(c) for c in num_coefs]
+    den_exprs = [evaluate_coefficient(c) for c in den_coefs]
+    
+    order_num = len(num_exprs) - 1
+    num = sum(coef * s**(order_num - i) for i, coef in enumerate(num_exprs))
+    
+    order_den = len(den_exprs) - 1
+    den = sum(coef * s**(order_den - i) for i, coef in enumerate(den_exprs))
+
+    tf = sp.simplify(num / den)
+
+    return tf
 
 def tf_from_equation(lhs,rhs,input_symbol,output_symbol,constants):
     s, t = define_st()

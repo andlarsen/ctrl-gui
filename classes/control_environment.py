@@ -1,7 +1,7 @@
 import matplotlib
 matplotlib.use('QtAgg')
 import matplotlib.pyplot as plt
-from models.transfer_function import TransferFunction
+from classes.transfer_function import TransferFunction
 from typing import Dict
 
 class ControlEnvironment:
