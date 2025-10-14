@@ -23,7 +23,7 @@ def main():
     cs.components.tfs['G2'].add_constant('b',2)
     cs.components.tfs['G2'].add_constant('c',3)
     cs.components.tfs['G2'].define_tf('Kg/(a*s**2+b*s+c)')
-    cs.components.tfs['G1'].print_all()
+    cs.components.tfs['G2'].print_all()
     # cs.components.tfs['G2'].impulse(t_range=(-1,15),delay_time=0,sweep_params={'a':[1, 2, 3]})
     # cs.components.tfs['G2'].step(t_range=(-1,15),delay_time=1,sweep_params={'a':[1, 2, 3]})
     # cs.components.tfs['G2'].ramp(t_range=(-1,15),delay_time=1,sweep_params={'a':[1, 2, 3]})
@@ -35,7 +35,7 @@ def main():
     cs.components.tfs['G3'].add_constant('w_n',10)
     cs.components.tfs['G3'].add_constant('zeta',0.4)
     cs.components.tfs['G3'].define_tf('Kg*w_n**2/(s**2+2*zeta*w_n*s+w_n**2)')
-    cs.components.tfs['G1'].print_all()
+    cs.components.tfs['G3'].print_all()
     
     # cs.impulse(t_range=(0, 8), sweep_params={'Kg': [1, 2]}) 
     # cs.step(t_range=(0, 8), sweep_params={'Kg': [1, 2]}) 
