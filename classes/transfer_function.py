@@ -178,35 +178,13 @@ class TransferFunction:
 ## Plots
     def impulse(self, t_range: Tuple[float, float] = (0, 10), n_points: int = 1000, delay_time: float = 0, sweep_params: Dict[str, List[float]] = None):
         if not sweep_params or all(not values for values in sweep_params.values()):
-            defs_plots.impulse(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
+            defs_plots.step(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
             return
         for var_name in sweep_params.keys():
             if var_name not in self.constants:
                 raise ValueError(f"Sweep variable '{var_name}' not found in constants.")
-
-        tf_symbolic = self.tf.symbolic
-        tf_numerics_list = []
-        delay_times_list = []
-        labels_list = []
-        
-        sweep_variables = list(sweep_params.keys())
-        sweep_value_lists = list(sweep_params.values())
-        
-        original_values = {var: self.constants[var]['value'] for var in sweep_variables}
-
-        for combo_values in itertools.product(*sweep_value_lists):
-            combo_label_parts = []
-            for var_name, value in zip(sweep_variables, combo_values):
-                self.edit_constant(var_name, value=value)
-                combo_label_parts.append(f"{var_name}={value}")
-            tf_numeric = tf_symbolic.subs(self.get_constant_values())
             
-            tf_numerics_list.append(tf_numeric)
-            delay_times_list.append(delay_time)
-            labels_list.append(f"{self.Name} ({', '.join(combo_label_parts)})")
-        
-        for var_name, value in original_values.items():
-            self.edit_constant(var_name, value=value)
+        tf_numerics_list, delay_times_list, labels_list = defs_tf.sweep_tfs(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)
 
         defs_plots.impulse(*tf_numerics_list, t_range=t_range, n_points=n_points, delay_times=delay_times_list, labels=labels_list)
 
@@ -217,66 +195,22 @@ class TransferFunction:
         for var_name in sweep_params.keys():
             if var_name not in self.constants:
                 raise ValueError(f"Sweep variable '{var_name}' not found in constants.")
-
-        tf_symbolic = self.tf.symbolic
-        tf_numerics_list = []
-        delay_times_list = []
-        labels_list = []
-        
-        sweep_variables = list(sweep_params.keys())
-        sweep_value_lists = list(sweep_params.values())
-        
-        original_values = {var: self.constants[var]['value'] for var in sweep_variables}
-
-        for combo_values in itertools.product(*sweep_value_lists):
-            combo_label_parts = []
-            for var_name, value in zip(sweep_variables, combo_values):
-                self.edit_constant(var_name, value=value)
-                combo_label_parts.append(f"{var_name}={value}")
-            tf_numeric = tf_symbolic.subs(self.get_constant_values())
             
-            tf_numerics_list.append(tf_numeric)
-            delay_times_list.append(delay_time)
-            labels_list.append(f"{self.Name} ({', '.join(combo_label_parts)})")
-        
-        for var_name, value in original_values.items():
-            self.edit_constant(var_name, value=value)
+        tf_numerics_list, delay_times_list, labels_list = defs_tf.sweep_tfs(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)
 
         defs_plots.step(*tf_numerics_list, t_range=t_range, n_points=n_points, delay_times=delay_times_list, labels=labels_list)
 
     def ramp(self, t_range: Tuple[float, float] = (0, 10), n_points: int = 1000, delay_time: float = 1, sweep_params: Dict[str, List[float]] = None):
         if not sweep_params or all(not values for values in sweep_params.values()):
-            defs_plots.ramp(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
+            defs_plots.step(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
             return
         for var_name in sweep_params.keys():
             if var_name not in self.constants:
                 raise ValueError(f"Sweep variable '{var_name}' not found in constants.")
-
-        tf_symbolic = self.tf.symbolic
-        tf_numerics_list = []
-        delay_times_list = []
-        labels_list = []
-        
-        sweep_variables = list(sweep_params.keys())
-        sweep_value_lists = list(sweep_params.values())
-        
-        original_values = {var: self.constants[var]['value'] for var in sweep_variables}
-
-        for combo_values in itertools.product(*sweep_value_lists):
-            combo_label_parts = []
-            for var_name, value in zip(sweep_variables, combo_values):
-                self.edit_constant(var_name, value=value)
-                combo_label_parts.append(f"{var_name}={value}")
-            tf_numeric = tf_symbolic.subs(self.get_constant_values())
             
-            tf_numerics_list.append(tf_numeric)
-            delay_times_list.append(delay_time)
-            labels_list.append(f"{self.Name} ({', '.join(combo_label_parts)})")
-        
-        for var_name, value in original_values.items():
-            self.edit_constant(var_name, value=value)
+        tf_numerics_list, delay_times_list, labels_list = defs_tf.sweep_tfs(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)
 
-        defs_plots.ramp(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
+        defs_plots.ramp(*tf_numerics_list, t_range=t_range, n_points=n_points, delay_times=delay_times_list, labels=labels_list)
 
     def bode(self, w_range: Tuple[float, float] = (), n_points: int = 10000, sweep_params: Dict[str, List[float]] = None):
         if not sweep_params or all(not values for values in sweep_params.values()):
@@ -286,30 +220,8 @@ class TransferFunction:
         for var_name in sweep_params.keys():
             if var_name not in self.constants:
                 raise ValueError(f"Sweep variable '{var_name}' not found in constants.")
-
-        tf_symbolic = self.tf.symbolic
-        tf_numerics_list = []
-        labels_list = []
-        
-        sweep_variables = list(sweep_params.keys())
-        sweep_value_lists = list(sweep_params.values())
-        
-        original_values = {var: self.constants[var]['value'] for var in sweep_variables}
-
-        for combo_values in itertools.product(*sweep_value_lists):
-            combo_label_parts = []
-            for var_name, value in zip(sweep_variables, combo_values):
-                self.edit_constant(var_name, value=value)
-                
-                combo_label_parts.append(f"{var_name}={value}")
-                
-            tf_numeric = tf_symbolic.subs(self.get_constant_values())
             
-            tf_numerics_list.append(tf_numeric)
-            labels_list.append(f"{self.Name} ({', '.join(combo_label_parts)})")
-        
-        for var_name, value in original_values.items():
-            self.edit_constant(var_name, value=value)
+        tf_numerics_list, delay_times_list, labels_list = defs_tf.sweep_tfs(self,tf_instances=self.tf,delay_times=None,sweep_params=sweep_params,is_global=False)
         
         defs_plots.bode(*tf_numerics_list, w_range=w_range, n_points=n_points, labels=labels_list)
 

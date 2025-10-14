@@ -42,11 +42,15 @@ def impulse(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labe
     plt.show()
 
 def step(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=None):
+    tf_numerics = tf_numerics
+    delay_times = delay_times
+    labels = labels
     if not tf_numerics:
         raise ValueError("At least one transfer function must be provided.")
     
     if labels is None:
         labels = [f"TF {i+1}" for i in range(len(tf_numerics))]
+
     elif len(labels) != len(tf_numerics):
         raise ValueError("Number of labels must match number of transfer functions.")
     
@@ -125,21 +129,16 @@ def bode(*tf_numerics, w_range=(), n_points=10000, labels=None):
     iter = 1
     for tf, label in zip(tf_numerics, labels):
         w_vals, F_vals = defs_tf.get_frequency_response(tf, w_range=w_range, n_points=n_points)
-        print(f"w_range: {w_range}")
         magnitude = 20 * np.log10(np.abs(F_vals))
         plt.semilogx(w_vals, magnitude, label=label)
         if iter == 1:
             w_max = np.max(w_vals)
             w_min = np.min(w_vals)
-            print(w_min,w_max)
         else:
             w_max = max(w_max, np.max(w_vals))
             w_min = min(w_min, np.min(w_vals))
-            print(w_min,w_max)
         iter += 1
         
-
-    
     plt.title('Bode Plot')
     plt.xlim(w_min,w_max)
     plt.ylabel('Magnitude (dB)')

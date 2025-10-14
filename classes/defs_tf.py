@@ -1,9 +1,12 @@
 import sympy as sp
 import numpy as np
-import classes.defs_sympy as defs_sympy
+import itertools
 import matplotlib
 matplotlib.use('QtAgg')
 import matplotlib.pyplot as plt
+import classes.defs_sympy as defs_sympy
+
+from typing import Dict, List, Any, Tuple
 
 def get_poles(tf):
     denominator = get_denominator(tf)
@@ -204,3 +207,54 @@ def from_equation(lhs,rhs,input_symbol,output_symbol,constants):
     # Transfer function G(s) = X(s)/F(s)
     tf = sp.simplify(Y_s / U)
     return tf
+
+def sweep_tfs(self,tf_instances, delay_times=None, sweep_params: Dict[str, List[float]] = None, is_global: bool = False):
+    sweep_variables = list(sweep_params.keys())
+    sweep_value_lists = list(sweep_params.values())
+    
+    if is_global == True:
+        original_values = {var: self.global_constants[var]['value'] for var in sweep_variables if var in self.global_constants}
+    else:
+        original_values = {var: self.constants[var]['value'] for var in sweep_variables if var in self.constants}
+
+    tf_numerics_list = []
+    labels_list = []
+    delay_times_list = []
+
+    for combo_values in itertools.product(*sweep_value_lists):
+        combo_label_parts = []
+        
+        for var_name, value in zip(sweep_variables, combo_values):
+            if is_global == True:
+                self.edit_global_constant(var_name, value=value) 
+            else:
+                self.edit_constant(var_name, value=value) 
+            combo_label_parts.append(f"{var_name}={value}")
+
+        base_label = ", ".join(combo_label_parts)
+
+        try:
+            for i, tf_instance in enumerate(tf_instances):
+                self.update()
+                tf_numeric = tf_instance.tf.numeric 
+                
+                tf_numerics_list.append(tf_numeric)
+                if delay_times is not None:
+                    delay_times_list.append(delay_times[i])
+                labels_list.append(f"{tf_instance.Name} ({base_label})")
+        except:
+            self.update()
+            tf_numeric = self.tf.numeric
+            tf_numerics_list.append(tf_numeric)
+            if delay_times is not None:
+                delay_times_list.append(delay_times)
+            labels_list.append(f"{self.Name} ({base_label})")
+    
+        if is_global == True:
+            for var_name, value in original_values.items():
+                self.edit_global_constant(var_name, value=value)
+        else:
+            for var_name, value in original_values.items():
+                self.edit_constant(var_name, value=value)
+                
+    return tf_numerics_list, delay_times_list, labels_list
