@@ -11,7 +11,10 @@ from models.model_transfer_function import TransferFunctionModel
 from models.model_equation import EquationModel
 
 class TransferFunction:
-    def __init__(self,global_variables, global_constants):
+    def __init__(self, name, description, global_variables, global_constants):
+        self.name = defs_sympy.lowercase_first(name)
+        self.Name = defs_sympy.uppercase_first(name)
+        self.description = description
         self.symbols = []
         self.functions =  []
         self.variables = global_variables
@@ -135,16 +138,16 @@ class TransferFunction:
 
 ## Plots
     def impulse(self, t_range=(0, 10), n_points=1000, delay_time=0):
-        defs_plots.impulse(self.tf.numeric, t_range=t_range, n_points=n_points, delay_time=delay_time)
+        defs_plots.impulse(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
 
     def step(self, t_range=(0, 10), n_points=1000, delay_time=1):
-        defs_plots.step(self.tf.numeric, t_range=t_range, n_points=n_points, delay_time=delay_time)
+        defs_plots.step(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
 
     def ramp(self, t_range=(0, 10), n_points=1000, delay_time=1):
-        defs_plots.ramp(self.tf.numeric, t_range=t_range, n_points=n_points, delay_time=delay_time)
+        defs_plots.ramp(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
 
     def bode(self, w_range=(), n_points=10000):
-        defs_plots.bode(self.tf.numeric, w_range=w_range, n_points=n_points)
+        defs_plots.bode(self.tf.numeric, w_range=w_range, n_points=n_points, labels=[self.Name])
 
     def margin_plot(self, w_range=(), n_points=10000):
         defs_plots.margin_plot(self.tf.numeric, w_range=w_range, n_points=n_points)

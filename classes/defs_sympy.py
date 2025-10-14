@@ -29,8 +29,8 @@ def remove_symbol(name: str, symbol_list: list, print_output=False):
 
 def add_function(name: str):
     s,t = define_st()
-    ft = sp.Function(name)(t)
-    Fs = sp.Function(capitalize_first(name))(s)
+    ft = sp.Function(lowercase_first(name))(t)
+    Fs = sp.Function(uppercase_first(name))(s)
     return ft, Fs
 
 def remove_function():
@@ -56,19 +56,19 @@ def delay_function(delay_time):
 
 def impulse_function(delay_time):
     delay = delay_function(delay_time)
-    impulse = 1*delay
+    impulse = 1#*delay
     return impulse
 
 def step_function(delay_time):
     s, t = define_st()
     delay = delay_function(delay_time)
-    step = 1/s*delay
+    step = 1/s#*delay
     return step
 
 def ramp_function(delay_time):
     s, t = define_st()
     delay = delay_function(delay_time)
-    ramp = 1/s**2*delay
+    ramp = 1/s**2#*delay
     return ramp
 
 def lambdify(y, t_range=(0, 10), num_points = 1000):
@@ -126,10 +126,15 @@ def make_ic_subs(expr: str, func, var, ic_values_in=[]):
         ic_values[sym] = ic_values_in[n]
     return ic_subs, ic_symbols, ic_values
 
-def capitalize_first(string_input: str) -> str:
+def uppercase_first(string_input: str) -> str:
     if len(string_input) == 0:
         return string_input
     return string_input[0].upper() + string_input[1:]
+
+def lowercase_first(string_input: str) -> str:
+    if len(string_input) == 0:
+        return string_input
+    return string_input[0].lower() + string_input[1:]
 
 def tf_from_string(tf_str,constants):
     s, t = define_st()

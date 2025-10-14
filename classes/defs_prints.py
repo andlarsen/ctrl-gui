@@ -1,6 +1,14 @@
 import sympy as sp
 
 ## Prints
+def print_name(self):
+    print('')
+    print(f'{self.name}(t) = {self.output[0]} / {self.input[0]}')
+    print(f'{self.Name}(s) = {self.output[1]} / {self.input[1]}')
+    if self.description:
+        print('')
+        print(f'Description: {self.description}')
+
 def print_symbols(self):
     print("Symbols:")
     for symbol in self.symbols:
@@ -17,10 +25,10 @@ def print_constants(self):
         print(f"  {symbol}: {data['value']} {data['unit']} - {data['description']}")
 
 def print_input(self):
-    print(f"Input function: {self.input}")
+    print(f"Input function: {self.input[0]}, {self.input[1]}")
 
 def print_output(self):
-    print(f"Output function: {self.output}")
+    print(f"Output function: {self.output[0]}, {self.output[1]}")
 
 def print_differential_equation(self):
     print(f"Equation:")
@@ -32,8 +40,8 @@ def print_tf(self):
         print("Laplace-domain function F(s) is not defined.")
         return
     print(f"Transfer function:")
-    print(f"Symbolic:   G(s) = {self.tf.symbolic}")
-    print(f"Numeric:    G(s) = {self.tf.numeric}")
+    print(f"Symbolic:   {self.Name}(s) = {self.tf.symbolic}")
+    print(f"Numeric:    {self.Name}(s) = {self.tf.numeric}")
 
 def print_numerator(self):
     print(f"Numerator:")
@@ -76,16 +84,17 @@ def print_margin(self):
 
 def print_all(self):
     print("==================================================")
+    print_name(self)
+    print("")
+    print_input(self)
+    print_output(self)
+    print('')
+    print("==================================================")
     print_symbols(self)
     print('')
     print_variables(self)
     print('')
     print_constants(self)
-    print('')
-    print("==================================================")
-    print_input(self)
-    print('')
-    print_output(self)
     print('')
     print("==================================================")
     print_differential_equation(self)
