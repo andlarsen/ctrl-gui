@@ -32,7 +32,7 @@ def impulse(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labe
         t_vals, yt_vals = defs_sympy.lambdify(yt, new_t_range, n_points)
         plt.plot(t_vals+delay_time, yt_vals, label=f"{label}")
     
-    plt.title('Step Response')
+    plt.title('Impulse Response')
     plt.xlim(np.min(t_range),np.max(t_range))
     plt.xlabel('Time (s)')
     plt.ylabel('Response y(t)')
@@ -102,7 +102,7 @@ def ramp(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=
         t_vals, yt_vals = defs_sympy.lambdify(yt, new_t_range, n_points)
         plt.plot(t_vals+delay_time, yt_vals, label=f"{label}")
     
-    plt.title('Step Response')
+    plt.title('Ramp Response')
     plt.xlim(np.min(t_range),np.max(t_range))
     plt.xlabel('Time (s)')
     plt.ylabel('Response y(t)')
@@ -110,21 +110,6 @@ def ramp(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=
     plt.legend()
     plt.tight_layout()
     plt.show()
-
-# def ramp(tf_numeric, t_range=(0, 10), n_points=1000, delay_time=1):
-#     if tf_numeric is None:
-#         raise ValueError("Laplace-domain function F(s) is not defined.")
-#     ramp = defs_sympy.ramp_function(delay_time)
-#     yt = defs_sympy.invL(tf_numeric*ramp)
-#     t_vals, yt_vals = defs_sympy.lambdify(yt, t_range, n_points)
-#     plt.figure()
-#     plt.plot(t_vals, yt_vals, label='(t)')
-#     plt.title('Ramp Response')
-#     plt.xlabel('Time (s)')
-#     plt.ylabel('y(t)')
-#     plt.grid(True)
-#     plt.legend()
-#     plt.show()
 
 def bode(*tf_numerics, w_range=(), n_points=10000, labels=None):    
     if not tf_numerics:
@@ -140,15 +125,19 @@ def bode(*tf_numerics, w_range=(), n_points=10000, labels=None):
     iter = 1
     for tf, label in zip(tf_numerics, labels):
         w_vals, F_vals = defs_tf.get_frequency_response(tf, w_range=w_range, n_points=n_points)
+        print(f"w_range: {w_range}")
         magnitude = 20 * np.log10(np.abs(F_vals))
         plt.semilogx(w_vals, magnitude, label=label)
         if iter == 1:
             w_max = np.max(w_vals)
             w_min = np.min(w_vals)
+            print(w_min,w_max)
         else:
             w_max = max(w_max, np.max(w_vals))
             w_min = min(w_min, np.min(w_vals))
+            print(w_min,w_max)
         iter += 1
+        
 
     
     plt.title('Bode Plot')

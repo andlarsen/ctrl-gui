@@ -1,9 +1,6 @@
 import sympy as sp
 import numpy as np
 import re
-import matplotlib
-matplotlib.use('QtAgg')
-import matplotlib.pyplot as plt
 
 def define_st():
     s = add_symbol('s')

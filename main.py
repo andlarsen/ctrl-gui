@@ -1,39 +1,43 @@
-from classes.control_environment import ControlEnvironment
+from classes.control_system import ControlSystem
 
-ce = ControlEnvironment('test')
+cs = ControlSystem('test')
 
 def main():
 
-    ce.add_tf(name='G1')
-    ce.tfs['G1'].define_input('u1')
-    ce.tfs['G1'].define_output('y1')
-    ce.tfs['G1'].add_constant('w_n',10)
-    ce.tfs['G1'].add_constant('zeta',0.4)
-    ce.tfs['G1'].define_tf(lhs='ddot(y)+2*zeta*w_n*dot(y)+w_n**2*y',rhs='w_n**2*u')
-    ce.tfs['G1'].print_all()
-    ce.tfs['G1'].ramp()
+    cs.add_global_constant('Kg',1)
+
+    cs.add_tf(name='G1')
+    cs.tfs['G1'].define_input('u1')
+    cs.tfs['G1'].define_output('y1')
+    cs.tfs['G1'].add_constant('K',1)
+    cs.tfs['G1'].add_constant('w_n',10)
+    cs.tfs['G1'].add_constant('zeta',0.4)
+    cs.tfs['G1'].define_tf(lhs='ddot(y)+2*zeta*w_n*dot(y)+w_n**2*y',rhs='K*Kg*w_n**2*u')
+    cs.tfs['G1'].print_all()
+    # cs.tfs['G1'].bode(w_range=(0.1,1000),sweep_params={'zeta':[0.1,0.5,1]})
     
-    ce.add_tf(name='G2')
-    ce.tfs['G2'].define_input('u2')
-    ce.tfs['G2'].define_output('y2')
-    ce.tfs['G2'].add_constant('a',1)
-    ce.tfs['G2'].add_constant('b',2)
-    ce.tfs['G2'].add_constant('c',3)
-    ce.tfs['G2'].define_tf('1/(a*s**2+b*s+c)')
-    ce.tfs['G2'].print_all()
+    cs.add_tf(name='G2')
+    cs.tfs['G2'].define_input('u2')
+    cs.tfs['G2'].define_output('y2')
+    cs.tfs['G2'].add_constant('a',1)
+    cs.tfs['G2'].add_constant('b',2)
+    cs.tfs['G2'].add_constant('c',3)
+    cs.tfs['G2'].define_tf('Kg/(a*s**2+b*s+c)')
+    cs.tfs['G1'].print_all()
+    # cs.tfs['G2'].step(t_range=(-1,15),delay_time=1,sweep_params={'a':[1, 2, 3]})
 
-    ce.add_tf(name='G3')
-    ce.tfs['G3'].define_input('u3')
-    ce.tfs['G3'].define_output('y3')
-    ce.tfs['G3'].add_constant('w_n',15)
-    ce.tfs['G3'].add_constant('zeta',3)
-    ce.tfs['G3'].define_tf('w_n**2/(s**2+2*zeta*w_n*s+w_n**2)')
-    ce.tfs['G3'].print_all()
-
-    ce.ramp()
+    cs.add_tf(name='G3')
+    cs.tfs['G3'].define_input('u3')
+    cs.tfs['G3'].define_output('y3')
+    cs.tfs['G3'].add_constant('w_n',10)
+    cs.tfs['G3'].add_constant('zeta',0.4)
+    cs.tfs['G3'].define_tf('Kg*w_n**2/(s**2+2*zeta*w_n*s+w_n**2)')
+    cs.tfs['G1'].print_all()
+    
+    cs.step(t_range=(0, 8), sweep_params={'Kg': [1, 2]}) 
 
     ## TODOS
-    # ce.root_locus()
+    # cs.root_locus()
 
 if __name__ == "__main__":
     main()

@@ -14,15 +14,13 @@ def print_symbols(self):
     for symbol in self.symbols:
         print(f"  {symbol}, is_real: {symbol.is_real}, is_positive: {symbol.is_positive}")
 
-def print_variables(self):
-    print("Variables:")
-    for variable in self.variables:
-        print(f"  {variable}")
-
 def print_constants(self):
     print('Constants:')
     for symbol, data in self.constants.items():
-        print(f"  {symbol}: {data['value']} {data['unit']} - {data['description']}")
+        if data['is_global'] == True:
+            print(f"  (global)  {symbol}: {data['value']} \t{data['unit']} \t- {data['description']}")
+        else:
+            print(f"  (local)   {symbol}: {data['value']} \t{data['unit']} \t- {data['description']}")
 
 def print_input(self):
     print(f"Input function: {self.input[0]}, {self.input[1]}")
@@ -91,8 +89,6 @@ def print_all(self):
     print('')
     print("==================================================")
     print_symbols(self)
-    print('')
-    print_variables(self)
     print('')
     print_constants(self)
     print('')

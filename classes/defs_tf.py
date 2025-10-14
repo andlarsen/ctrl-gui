@@ -100,15 +100,19 @@ def get_margin(tf_numeric, w_range=(), n_points=10000):
         gm = None
     return gm, pm, wcg, wcp, wcg_found, wcp_found
     
-def get_frequency_response(tf_numeric, w_range=(), n_points=10000):
+def get_frequency_response(tf_numeric, w_range, n_points=10000):
     if tf_numeric is None:
         raise ValueError("Laplace-domain function F(s) is not defined.")
     s, t = defs_sympy.define_st()
     zeros = get_zeros(tf_numeric)
     poles = get_poles(tf_numeric)
-    w_range = get_w_range(zeros,poles)
-    w_min = 10**(np.floor(np.log10(w_range[0])))
-    w_max = 10**(np.ceil(np.log10(w_range[1])))
+    if w_range is None or not w_range:
+        w_range = get_w_range(zeros,poles)
+        w_min = 10**(np.floor(np.log10(w_range[0])))
+        w_max = 10**(np.ceil(np.log10(w_range[1]))+1)
+    else:
+        w_min = 10**(np.floor(np.log10(w_range[0])))
+        w_max = 10**(np.ceil(np.log10(w_range[1])))
     w_vals = np.logspace(np.log10(w_min), np.log10(w_max), n_points)
     s_vals = 1j * w_vals
     F_func = sp.lambdify(s, tf_numeric, modules=['numpy'])
