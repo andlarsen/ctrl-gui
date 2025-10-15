@@ -1,5 +1,5 @@
 numpy
 sympy
+scipy
 matplotlib
 PyQt6
-scipy

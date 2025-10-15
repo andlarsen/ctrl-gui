@@ -1,12 +1,18 @@
 import sympy as sp
 import numpy as np
+import scipy
+import scipy.signal as signal
 import itertools
 import matplotlib
 matplotlib.use('QtAgg')
 import matplotlib.pyplot as plt
 import classes.defs_sympy as defs_sympy
 
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
+from models.model_impulse_response import ImpulseResponse, ImpulseResponseInfo
+from models.model_step_response import StepResponse, StepResponseInfo
+from models.model_ramp_response import RampResponse, RampResponseInfo
+from models.model_metric import Metric
 
 def get_poles(tf):
     denominator = get_denominator(tf)
@@ -75,7 +81,7 @@ def get_w_range(zeros,poles):
         w_range = (0.1, 100)
         return w_range
     
-def get_margin(tf_numeric, w_range=(), n_points=10000):
+def get_margin(tf_numeric, w_range=(), n_points=500):
     w_vals, F_vals = get_frequency_response(tf_numeric, w_range=w_range, n_points=n_points)
 
     magnitude = 20 * np.log10(np.abs(F_vals))
@@ -103,25 +109,31 @@ def get_margin(tf_numeric, w_range=(), n_points=10000):
         gm = None
     return gm, pm, wcg, wcp, wcg_found, wcp_found
     
-def get_frequency_response(tf_numeric, w_range, n_points=10000):
+def get_frequency_response(tf_numeric, w_range=(0.1,100), n_points=500):
     if tf_numeric is None:
         raise ValueError("Laplace-domain function F(s) is not defined.")
+    
     s, t = defs_sympy.define_st()
     zeros = get_zeros(tf_numeric)
     poles = get_poles(tf_numeric)
     if w_range is None or not w_range:
-        w_range = get_w_range(zeros,poles)
+        try:
+            w_range = get_w_range(zeros, poles)
+        except Exception:
+            w_range = (0.1, 10)
         w_min = 10**(np.floor(np.log10(w_range[0])))
         w_max = 10**(np.ceil(np.log10(w_range[1]))+1)
     else:
         w_min = 10**(np.floor(np.log10(w_range[0])))
         w_max = 10**(np.ceil(np.log10(w_range[1])))
     w_vals = np.logspace(np.log10(w_min), np.log10(w_max), n_points)
+    if tf_numeric == 1:
+        F_vals = np.ones_like(w_vals, dtype=complex)
+        return w_vals, F_vals
     s_vals = 1j * w_vals
     F_func = sp.lambdify(s, tf_numeric, modules=['numpy'])
     F_vals = F_func(s_vals)
     return w_vals, F_vals
-
 
 ## Define transfer function
 def from_string(tf_str,constants):
@@ -130,8 +142,8 @@ def from_string(tf_str,constants):
     for name, const_data in constants.items():
         symbols[name] = sp.Symbol(name) 
     locals().update(symbols)
-    tf = eval(defs_sympy.translate_string(tf_str))
-    return sp.simplify(tf)
+    tf = sp.together(eval(defs_sympy.translate_string(tf_str)))
+    return tf
 
 def from_coefs(num_coefs,den_coefs,constants):
     s, t = defs_sympy.define_st() 
@@ -154,9 +166,9 @@ def from_coefs(num_coefs,den_coefs,constants):
     order_den = len(den_exprs) - 1
     den = sum(coef * s**(order_den - i) for i, coef in enumerate(den_exprs))
 
-    tf = num / den
+    tf = sp.together(num / den)
 
-    return sp.simplify(tf)
+    return tf
 
 def from_equation(lhs,rhs,input_symbol,output_symbol,constants):
     s, t = defs_sympy.define_st()
@@ -205,8 +217,550 @@ def from_equation(lhs,rhs,input_symbol,output_symbol,constants):
     Y_s = Y_s.subs(ics)
 
     # Transfer function G(s) = X(s)/F(s)
-    tf = sp.simplify(Y_s / U)
+    tf = sp.together(Y_s / U)
     return tf
+
+def get_impulse_response(tf, t_range: Optional[tuple] = (), delay_time: float = 0, n_points: int = 500, n_tau: float = 6, tol: float = 1e-6) -> ImpulseResponse:
+    s = sp.symbols('s')
+    num, den = sp.fraction(tf)
+    num_poly = sp.Poly(num, s)
+    den_poly = sp.Poly(den, s)
+    num_coeffs = [float(c) for c in num_poly.all_coeffs()]
+    den_coeffs = [float(c) for c in den_poly.all_coeffs()]
+    
+    system = signal.TransferFunction(num_coeffs, den_coeffs)
+    
+    t_start = t_range[0] if t_range else 0.0
+    t_end = t_range[1] if t_range else None
+
+    # --------------------------------------------------------
+    # 1. AUTO-SCALING LOGIC
+    # --------------------------------------------------------
+    if t_end is None or t_end <= t_start:
+        
+        # Calculate poles
+        poles = system.poles
+        
+        # Default safety duration if calculation fails or system is unstable/marginal
+        T_sim = 10.0
+        
+        # Find the dominant pole for stable systems
+        if len(poles) > 0:
+            # Check stability: any pole with Re(s) >= 0 (excluding numerical noise)
+            unstable_or_marginal = np.any(np.real(poles) >= -tol)
+            
+            if not unstable_or_marginal:
+                # System is stable. Estimate settling time.
+                
+                # Characteristic Time Constant (tau) is 1 / |Re(p_dominant)|
+                # The dominant pole is the one closest to the jw-axis (smallest |Re(p)|)
+                stable_poles = poles[np.real(poles) < -tol]
+                if len(stable_poles) > 0:
+                    
+                    # Find the stable pole with the smallest magnitude of its real part
+                    abs_real_parts = np.abs(np.real(stable_poles))
+                    tau_max = 1.0 / np.min(abs_real_parts)
+                    
+                    # Simulation time T_sim is based on n_tau * tau_max
+                    T_settle_factor = n_tau # Default set to 6 for impulse
+                    T_sim = T_settle_factor * tau_max
+            
+            # Add delay time to the required simulation time
+            t_end = T_sim + delay_time
+            
+        else:
+            # If system has no poles (e.g., pure gain), use a default
+            t_end = T_sim + delay_time
+
+    # --------------------------------------------------------
+    # 2. RESPONSE CALCULATION
+    # --------------------------------------------------------
+    
+    # Ensure t_end is at least delay_time + a small buffer
+    t_end = max(t_end, delay_time + 1e-3)
+
+    t_vals = np.linspace(t_start, t_end, n_points)
+    mask_after = t_vals >= delay_time
+    y_vals = np.zeros_like(t_vals)
+    
+    if np.any(mask_after):
+        t_shifted = t_vals[mask_after] - delay_time
+        _, y_after = signal.impulse(system, T=t_shifted)
+        y_vals[mask_after] = y_after
+    
+    t_range = (t_vals[0],t_vals[-1])
+    
+    # Calculate info
+    info = get_impulse_response_info(t_vals, y_vals, delay_time)
+    
+    return ImpulseResponse(
+        t_vals=t_vals.tolist(), 
+        y_vals=y_vals.tolist(),
+        t_range=t_range,
+        delay_time=delay_time,
+        info=info
+    )
+
+# def get_impulse_response(tf, t_range=(0,10), delay_time=1, n_points=500) -> ImpulseResponse:
+#     s = sp.symbols('s')
+#     num, den = sp.fraction(tf)
+#     num_poly = sp.Poly(num, s)
+#     den_poly = sp.Poly(den, s)
+#     num_coeffs = [float(c) for c in num_poly.all_coeffs()]
+#     den_coeffs = [float(c) for c in den_poly.all_coeffs()]
+#     system = signal.TransferFunction(num_coeffs, den_coeffs)
+    
+#     t_vals = np.linspace(*t_range, n_points)
+#     mask_after = t_vals >= delay_time
+#     y_vals = np.zeros_like(t_vals)
+    
+#     if np.any(mask_after):
+#         t_shifted = t_vals[mask_after] - delay_time
+#         _, y_after = signal.impulse(system, T=t_shifted)
+#         y_vals[mask_after] = y_after
+    
+#     # Calculate info
+#     info = get_impulse_response_info(t_vals, y_vals, delay_time)
+        
+#     # Return the complete model
+#     return ImpulseResponse(
+#         t_vals=t_vals.tolist(), 
+#         y_vals=y_vals.tolist(),
+#         delay_time=delay_time,
+#         info=info,
+#     )
+
+def get_impulse_response_info(t_vals, y_vals, delay_time, tol=0.02) -> ImpulseResponseInfo:
+    y_vals = np.real_if_close(y_vals)
+    
+    # Remove values before delay
+    mask = t_vals >= delay_time
+    t = t_vals[mask]
+    y = y_vals[mask]
+    
+    if len(y) == 0:
+        return ImpulseResponseInfo()
+    
+    # --- Peak characteristics ---
+    peak_idx = np.argmax(np.abs(y))
+    t_peak = t[peak_idx] - delay_time
+    y_peak = y[peak_idx]
+    y_initial = y[0] if len(y) > 0 else None
+    
+    # --- Integral (DC gain) ---
+    integral = np.trapz(y, t)
+    
+    # --- Energy ---
+    energy = np.trapz(y**2, t)
+    
+    # --- Settling time ---
+    y_final = y[-1]  # Should approach 0 for stable system
+    threshold = tol * np.abs(y_peak)
+    settled = np.abs(y) < threshold
+    
+    if np.any(settled):
+        # Find last time it exceeds threshold
+        last_outside = np.where(~settled)[0]
+        if len(last_outside) > 0 and last_outside[-1] < len(t) - 1:
+            t_settling = t[last_outside[-1] + 1] - delay_time
+        else:
+            t_settling = np.nan
+    else:
+        t_settling = np.nan
+    
+    # --- Time to half peak ---
+    half_peak = y_peak / 2
+    try:
+        after_peak = y[peak_idx:]
+        t_after_peak = t[peak_idx:]
+        half_idx = np.where(np.abs(after_peak) <= np.abs(half_peak))[0][0]
+        t_half = t_after_peak[half_idx] - delay_time
+    except (IndexError, ValueError):
+        t_half = np.nan
+    
+    # --- Decay rate (exponential fit after peak) ---
+    try:
+        if peak_idx < len(y) - 10:  # Need some points after peak
+            y_decay = np.abs(y[peak_idx:])
+            t_decay = t[peak_idx:] - t[peak_idx]
+            
+            # Fit exponential: y = y_peak * exp(-decay_rate * t)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                log_y = np.log(y_decay / y_decay[0])
+                valid = np.isfinite(log_y)
+                if np.sum(valid) > 5:
+                    # Linear fit in log space
+                    coeffs = np.polyfit(t_decay[valid], log_y[valid], 1)
+                    decay_rate = -coeffs[0]  # Negative of slope
+                else:
+                    decay_rate = np.nan
+        else:
+            decay_rate = np.nan
+    except:
+        decay_rate = np.nan
+    
+    # --- Count oscillations (zero crossings) ---
+    zero_crossings = np.where(np.diff(np.sign(y)))[0]
+    num_oscillations = len(zero_crossings)
+    
+    # --- Estimate damping ratio and natural frequency (if oscillatory) ---
+    if num_oscillations >= 2:
+        # Use logarithmic decrement method
+        peaks_idx = []
+        for i in range(1, len(y)-1):
+            if y[i] > y[i-1] and y[i] > y[i+1]:
+                peaks_idx.append(i)
+        
+        if len(peaks_idx) >= 2:
+            # Period from two consecutive peaks
+            T_d = (t[peaks_idx[1]] - t[peaks_idx[0]])
+            omega_d = 2 * np.pi / T_d  # Damped natural frequency
+            
+            # Logarithmic decrement
+            delta = np.log(np.abs(y[peaks_idx[0]]) / np.abs(y[peaks_idx[1]]))
+            damping_ratio = delta / np.sqrt((2*np.pi)**2 + delta**2)
+            
+            # Undamped natural frequency
+            natural_freq = omega_d / np.sqrt(1 - damping_ratio**2) if damping_ratio < 1 else omega_d
+        else:
+            damping_ratio = None
+            natural_freq = None
+    else:
+        damping_ratio = None
+        natural_freq = None
+
+    defaults = ImpulseResponseInfo._field_defaults
+    
+    calculated_data = {
+        "t_peak": t_peak,
+        "y_peak": y_peak,
+        "t_settling": t_settling,
+        "t_half": t_half,
+        "decay_rate": decay_rate,
+        "integral": integral,
+        "energy": energy,
+        "num_oscillations": num_oscillations,
+        "damping_ratio": damping_ratio,
+        "natural_freq": natural_freq,
+    }
+    
+    info_args = {}
+    for field_name, value in calculated_data.items():
+        default_metric = defaults.get(field_name)
+        
+        if default_metric:
+            info_args[field_name] = default_metric._replace(value=value)
+        else:
+            info_args[field_name] = Metric(value=value, label=field_name)
+    return ImpulseResponseInfo(**info_args)
+
+def get_step_response(tf, t_range: Optional[tuple] = (), delay_time: float = 0, n_points: int = 500, n_tau: float = 8, tol: float = 1e-6) -> StepResponse:
+    s = sp.symbols('s')
+    num, den = sp.fraction(tf)
+    num_poly = sp.Poly(num, s)
+    den_poly = sp.Poly(den, s)
+    num_coeffs = [float(c) for c in num_poly.all_coeffs()]
+    den_coeffs = [float(c) for c in den_poly.all_coeffs()]
+    
+    system = signal.TransferFunction(num_coeffs, den_coeffs)
+    
+    t_start = t_range[0] if t_range else 0.0
+    t_end = t_range[1] if t_range else None
+
+    # --------------------------------------------------------
+    # 1. AUTO-SCALING LOGIC
+    # --------------------------------------------------------
+    if t_end is None or t_end <= t_start:
+        
+        # Calculate poles
+        poles = system.poles
+        
+        # Default safety duration if calculation fails or system is unstable/marginal
+        T_sim = 10.0
+        
+        # Find the dominant pole for stable systems
+        if len(poles) > 0:
+            # Check stability: any pole with Re(s) >= 0 (excluding numerical noise)
+            unstable_or_marginal = np.any(np.real(poles) >= -tol)
+            
+            if not unstable_or_marginal:
+                # System is stable. Estimate settling time.
+                
+                # Characteristic Time Constant (tau) is 1 / |Re(p_dominant)|
+                # The dominant pole is the one closest to the jw-axis (smallest |Re(p)|)
+                stable_poles = poles[np.real(poles) < -tol]
+                if len(stable_poles) > 0:
+                    
+                    # Find the stable pole with the smallest magnitude of its real part
+                    abs_real_parts = np.abs(np.real(stable_poles))
+                    tau_max = 1.0 / np.min(abs_real_parts)
+                    
+                    # Simulation time T_sim is typically 4*tau to 5*tau for 2% settling
+                    T_settle_factor = n_tau
+                    T_sim = T_settle_factor * tau_max
+            
+            # Add delay time to the required simulation time
+            t_end = T_sim + delay_time
+            
+        else:
+            # If system has no poles (e.g., pure gain), use a default
+            t_end = T_sim + delay_time
+
+    # --------------------------------------------------------
+    # 2. RESPONSE CALCULATION
+    # --------------------------------------------------------
+    
+    # Ensure t_end is at least delay_time + a small buffer
+    t_end = max(t_end, delay_time + 1e-3)
+
+    t_vals = np.linspace(t_start, t_end, n_points)
+    mask_after = t_vals >= delay_time
+    y_vals = np.zeros_like(t_vals)
+    
+    if np.any(mask_after):
+        t_shifted = t_vals[mask_after] - delay_time
+        _, y_after = signal.step(system, T=t_shifted)
+        y_vals[mask_after] = y_after
+    
+    t_range = (t_vals[0],t_vals[-1])
+    
+    # Calculate info
+    info = get_step_response_info(t_vals, y_vals, delay_time)
+    
+    # Return the complete model
+    return StepResponse(
+        t_vals=t_vals.tolist(), 
+        y_vals=y_vals.tolist(),
+        t_range=t_range,
+        delay_time=delay_time,
+        info=info
+    )
+
+def get_step_response_info(t_vals: np.ndarray, y_vals: np.ndarray, delay_time: float, tol: float = 0.02) -> StepResponseInfo:
+        
+    y_vals = np.real_if_close(y_vals)
+    
+    # Remove values before delay
+    mask = t_vals >= delay_time
+    t = t_vals[mask]
+    y = y_vals[mask]
+    
+    if len(y) == 0:
+        return StepResponseInfo
+    
+    t_relative = t - delay_time
+    
+    # --- Steady-State Value ---
+    y_final = y[-1]
+    y_initial = y[0] if len(y) > 0 else 0.0
+    
+    # --- Peak Characteristics ---
+    peak_idx = np.argmax(y)
+    y_peak = y[peak_idx]
+    t_peak = t_relative[peak_idx]
+    
+    # --- Overshoot ---
+    overshoot_percent = None
+    if y_final != 0 and y_peak > y_final:
+        overshoot_percent = ((y_peak - y_final) / np.abs(y_final)) * 100.0
+    
+    # --- Rise Time (10% to 90%) ---
+    target_10 = y_initial + 0.1 * (y_final - y_initial)
+    target_90 = y_initial + 0.9 * (y_final - y_initial)
+    
+    t_10, t_90 = np.nan, np.nan
+    try:
+        idx_10 = np.where(y >= target_10)[0][0]
+        t_10 = t_relative[idx_10]
+    except IndexError:
+        pass 
+        
+    try:
+        idx_90 = np.where(y >= target_90)[0][0]
+        t_90 = t_relative[idx_90]
+    except IndexError:
+        pass 
+    
+    t_rise = t_90 - t_10 if not np.isnan(t_10) and not np.isnan(t_90) and t_90 > t_10 else np.nan
+    
+    # --- Settling Time ---
+    t_settling = np.nan
+    threshold_low = y_final * (1 - tol)
+    threshold_high = y_final * (1 + tol)
+    
+    outside_band = (y < threshold_low) | (y > threshold_high)
+    
+    if np.any(outside_band):
+        last_outside_idx = np.where(outside_band)[0][-1]
+        
+        if last_outside_idx < len(y) - 1:
+            t_settling = t_relative[last_outside_idx + 1]
+        else:
+            t_settling = np.nan
+    elif len(y) > 0:
+        t_settling = t_relative[0] 
+
+    # --- Number of Oscillations (Crossings of Final Value) ---
+    # Look at the difference between y and y_final
+    error = y - y_final
+    # Zero crossings of the error signal
+    zero_crossings = np.where(np.diff(np.sign(error)))[0]
+    num_oscillations = len(zero_crossings)
+    
+    # --- Damping Ratio ($\zeta$) and Natural Frequency ($\omega_n$) Estimation ---
+    damping_ratio, natural_freq = None, None
+    
+    if overshoot_percent is not None and overshoot_percent > 0 and y_final != 0:
+        try:
+            M_p = overshoot_percent / 100.0
+            ln_M_p = np.log(M_p)
+            damping_ratio = -ln_M_p / np.sqrt(np.pi**2 + ln_M_p**2)
+            
+            if t_peak > 0 and damping_ratio < 1:
+                natural_freq = np.pi / (t_peak * np.sqrt(1 - damping_ratio**2))
+        except (ValueError, ZeroDivisionError, TypeError):
+            pass 
+
+    defaults = StepResponseInfo._field_defaults
+    
+    calculated_data = {
+        "y_final": y_final,
+        "y_initial": y_initial,
+        "t_rise": t_rise,
+        "t_peak": t_peak,
+        "y_peak": y_peak,
+        "overshoot_percent": overshoot_percent,
+        "t_settling": t_settling,
+        "num_oscillations": num_oscillations,
+        "damping_ratio": damping_ratio,
+        "natural_freq": natural_freq,
+    }
+    
+    info_args = {}
+    for field_name, value in calculated_data.items():
+        default_metric = defaults.get(field_name)
+        
+        if default_metric:
+            info_args[field_name] = default_metric._replace(value=value)
+        else:
+            info_args[field_name] = Metric(value=value, label=field_name)
+    return StepResponseInfo(**info_args)
+
+def get_ramp_response(tf, t_range=(0, 10), delay_time=1, n_points=500) -> RampResponse:
+    """
+    Calculates the ramp response (1/s^2 input) of a system with a time delay.
+    """
+    s = sp.symbols('s')
+    num, den = sp.fraction(tf)
+    
+    # Standard Scipy setup
+    num_coeffs = [float(c) for c in sp.Poly(num, s).all_coeffs()]
+    den_coeffs = [float(c) for c in sp.Poly(den, s).all_coeffs()]
+    system = signal.TransferFunction(num_coeffs, den_coeffs)
+    
+    t_vals = np.linspace(*t_range, n_points)
+    r_vals = t_vals  # The ramp input: r(t) = t
+    y_vals = np.zeros_like(t_vals)
+    
+    mask_after = t_vals >= delay_time
+    
+    # Calculate response *after* the delay time
+    if np.any(mask_after):
+        t_shifted = t_vals[mask_after] - delay_time
+        
+        # Ramp input is the integral of the step response. 
+        # Scipy doesn't have a direct ramp function for TransferFunction objects, 
+        # so we calculate the step response of the system G(s)/s
+        
+        # Calculate the step response of the *system* G(s)
+        _, y_step = signal.step(system, T=t_shifted)
+        
+        # The ramp response y_ramp is the integral of the step response:
+        # y_ramp(t) = integral(y_step(tau) dtau)
+        y_after = np.cumsum(y_step) * (t_shifted[1] - t_shifted[0])
+        
+        y_vals[mask_after] = y_after
+    
+    info = get_ramp_response_info(t_vals, r_vals, y_vals, delay_time)
+        
+    return RampResponse(
+        t_vals=t_vals.tolist(), 
+        r_vals=r_vals.tolist(),
+        y_vals=y_vals.tolist(),
+        delay_time=delay_time,
+        info=info,
+    )
+
+def get_ramp_response_info(t_vals: np.ndarray, r_vals: np.ndarray, y_vals: np.ndarray, delay_time: float, tol: float = 0.05) -> RampResponseInfo:
+    """
+    Calculates key tracking and error metrics from the ramp response data.
+    """
+    y_vals = np.real_if_close(y_vals)
+    
+    # --- Data Filtering ---
+    mask = t_vals >= delay_time
+    t = t_vals[mask]
+    r = r_vals[mask]
+    y = y_vals[mask]
+    
+    if len(y) < 20: # Need enough points to determine steady-state behavior
+        return RampResponseInfo(
+            steady_state_error=Metric(), velocity_error_const=Metric(), t_lag=Metric(), 
+            max_tracking_error=Metric(), delay_time=Metric(value=delay_time, label="Time Delay", unit="s"), 
+            y_final=Metric(), t_peak=Metric(), y_peak=Metric()
+        )
+    
+    # --- 1. Steady-State Error (ess) ---
+    # The error is e(t) = r(t) - y(t)
+    error = r - y
+    
+    # Calculate steady-state error by averaging the error over the last 10% of the simulation
+    n_avg = max(10, len(error) // 10)
+    e_final = np.mean(error[-n_avg:])
+    
+    # --- 2. Velocity Error Constant (Kv) ---
+    # For a Type 1 stable system: ess = 1 / Kv
+    Kv = 1.0 / e_final if e_final != 0 else np.inf
+    
+    # --- 3. Maximum Tracking Error ---
+    e_max_tracking = np.max(np.abs(error))
+    
+    # --- 4. Time Lag (t_lag) ---
+    # If the system tracks the ramp, the error is constant (ess). 
+    # This constant error relates to the time lag: ess ≈ t_lag * slope (slope=1 for standard ramp)
+    t_lag = e_final 
+    
+    # --- 5. Peak Characteristics (less common for ramp, but good to check) ---
+    peak_idx = np.argmax(y)
+    t_peak = t[peak_idx] - delay_time
+    y_peak = y[peak_idx]
+    
+    # --- 6. Final Values ---
+    y_final = y[-1]
+
+    defaults = RampResponseInfo._field_defaults
+    
+    calculated_data = {
+        "y_final": y_final,
+        "t_peak": t_peak,
+        "y_peak": y_peak,
+        "e_final": e_final,
+        "Kv": Kv,
+        "t_lag": t_lag,
+        "e_max_tracking": e_max_tracking,
+    }
+    
+    info_args = {}
+    for field_name, value in calculated_data.items():
+        default_metric = defaults.get(field_name)
+        
+        if default_metric:
+            info_args[field_name] = default_metric._replace(value=value)
+        else:
+            info_args[field_name] = Metric(value=value, label=field_name)
+
+    return RampResponseInfo(**info_args)
+
 
 def sweep_tfs(self,tf_instances, delay_times=None, sweep_params: Dict[str, List[float]] = None, is_global: bool = False):
     sweep_variables = list(sweep_params.keys())
@@ -258,3 +812,99 @@ def sweep_tfs(self,tf_instances, delay_times=None, sweep_params: Dict[str, List[
                 self.edit_constant(var_name, value=value)
                 
     return tf_numerics_list, delay_times_list, labels_list
+
+def sweep_impulse_responses(self,tf_instances, delay_times=None, sweep_params: Dict[str, List[float]] = None, is_global: bool = False):
+    sweep_variables = list(sweep_params.keys())
+    sweep_value_lists = list(sweep_params.values())
+    
+    if is_global == True:
+        original_values = {var: self.global_constants[var]['value'] for var in sweep_variables if var in self.global_constants}
+    else:
+        original_values = {var: self.constants[var]['value'] for var in sweep_variables if var in self.constants}
+
+    responses_list = []
+    labels_list = []
+
+    for combo_values in itertools.product(*sweep_value_lists):
+        combo_label_parts = []
+        
+        for var_name, value in zip(sweep_variables, combo_values):
+            if is_global == True:
+                self.edit_global_constant(var_name, value=value) 
+            else:
+                self.edit_constant(var_name, value=value) 
+            combo_label_parts.append(f"{var_name}={value}")
+
+        base_label = ", ".join(combo_label_parts)
+
+        try:
+            for i, tf_instance in enumerate(tf_instances):
+                self.update()
+                # tf_numeric = tf_instance.tf.numeric 
+                impulse_response = tf_instance.impulse_response
+                
+                responses_list.append(impulse_response)
+                labels_list.append(f"{tf_instance.Name} ({base_label})")
+        except:
+            self.update()
+            # tf_numeric = self.tf.numeric
+            impulse_response = tf_instance.impulse_response
+            responses_list.append(impulse_response)
+            labels_list.append(f"{self.Name} ({base_label})")
+    
+        if is_global == True:
+            for var_name, value in original_values.items():
+                self.edit_global_constant(var_name, value=value)
+        else:
+            for var_name, value in original_values.items():
+                self.edit_constant(var_name, value=value)
+                
+    return responses_list, labels_list
+
+def sweep_step_responses(self,tf_instances, delay_times=None, sweep_params: Dict[str, List[float]] = None, is_global: bool = False):
+    sweep_variables = list(sweep_params.keys())
+    sweep_value_lists = list(sweep_params.values())
+    
+    if is_global == True:
+        original_values = {var: self.global_constants[var]['value'] for var in sweep_variables if var in self.global_constants}
+    else:
+        original_values = {var: self.constants[var]['value'] for var in sweep_variables if var in self.constants}
+
+    responses_list = []
+    labels_list = []
+
+    for combo_values in itertools.product(*sweep_value_lists):
+        combo_label_parts = []
+        
+        for var_name, value in zip(sweep_variables, combo_values):
+            if is_global == True:
+                self.edit_global_constant(var_name, value=value) 
+            else:
+                self.edit_constant(var_name, value=value) 
+            combo_label_parts.append(f"{var_name}={value}")
+
+        base_label = ", ".join(combo_label_parts)
+
+        try:
+            for i, tf_instance in enumerate(tf_instances):
+                self.update()
+                # tf_numeric = tf_instance.tf.numeric 
+                step_response = tf_instance.step_response
+                
+                responses_list.append(step_response)
+                labels_list.append(f"{tf_instance.Name} ({base_label})")
+        except:
+            self.update()
+            # tf_numeric = self.tf.numeric
+            step_response = tf_instance.step_response
+            responses_list.append(step_response)
+            labels_list.append(f"{self.Name} ({base_label})")
+    
+        if is_global == True:
+            for var_name, value in original_values.items():
+                self.edit_global_constant(var_name, value=value)
+        else:
+            for var_name, value in original_values.items():
+                self.edit_constant(var_name, value=value)
+                
+    return responses_list, labels_list

@@ -1,12 +1,15 @@
 import sympy as sp
 import numpy as np
+import scipy.signal as signal
 import classes.defs_sympy as defs_sympy
 import classes.defs_tf as defs_tf
 import matplotlib
 matplotlib.use('QtAgg')
 import matplotlib.pyplot as plt
 
-def impulse(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=None):
+from typing import Dict, List, Any, Tuple, Optional
+
+def impulse(*tf_numerics, t_range=(0, 10), n_points=100, delay_times=None, labels=None):
     if not tf_numerics:
         raise ValueError("At least one transfer function must be provided.")
     
@@ -25,12 +28,8 @@ def impulse(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labe
     for tf, label, delay_time in zip(tf_numerics, labels, delay_times):
         if tf is None:
             raise ValueError(f"Laplace-domain function for '{label}' is not defined.")
-        
-        step = defs_sympy.impulse_function(delay_time)
-        yt = defs_sympy.invL(tf * step)
-        new_t_range = (t_range[0]-delay_time,t_range[1]-delay_time)
-        t_vals, yt_vals = defs_sympy.lambdify(yt, new_t_range, n_points)
-        plt.plot(t_vals+delay_time, yt_vals, label=f"{label}")
+        impulse_response = defs_tf.get_impulse_response(tf,t_range=(0,10),delay_time=delay_time,n_points=n_points)
+        plt.plot(impulse_response.t_vals, impulse_response.y_vals, label=f"{label}")
     
     plt.title('Impulse Response')
     plt.xlim(np.min(t_range),np.max(t_range))
@@ -41,38 +40,37 @@ def impulse(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labe
     plt.tight_layout()
     plt.show()
 
-def step(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=None):
-    tf_numerics = tf_numerics
-    delay_times = delay_times
-    labels = labels
-    if not tf_numerics:
-        raise ValueError("At least one transfer function must be provided.")
-    
-    if labels is None:
-        labels = [f"TF {i+1}" for i in range(len(tf_numerics))]
+def plot_response(*responses, labels=None):
 
-    elif len(labels) != len(tf_numerics):
-        raise ValueError("Number of labels must match number of transfer functions.")
+    if not responses:
+        raise ValueError("At least one response must be provided.")
     
-    if delay_times is None:
-        delay_times = [1] * len(tf_numerics)
-    elif len(delay_times) != len(tf_numerics):
-        raise ValueError("Number of delay times must match number of transfer functions.")
-    
-    plt.figure(figsize=(8, 5))
-    
-    for tf, label, delay_time in zip(tf_numerics, labels, delay_times):
-        if tf is None:
-            raise ValueError(f"Laplace-domain function for '{label}' is not defined.")
+    n_responses = len(responses) 
+
+    if labels is None:
+        # Create default labels based on the count
+        labels = [f"Response {i+1}" for i in range(n_responses)]
         
-        step = defs_sympy.step_function(delay_time)
-        yt = defs_sympy.invL(tf * step)
-        new_t_range = (t_range[0]-delay_time,t_range[1]-delay_time)
-        t_vals, yt_vals = defs_sympy.lambdify(yt, new_t_range, n_points)
-        plt.plot(t_vals+delay_time, yt_vals, label=f"{label}")
-    
+    elif len(labels) != n_responses:
+        # Check for label count mismatch
+        raise ValueError("Number of labels must match number of transfer functions.")
+        
+    plt.figure(figsize=(8, 5))
+    iter = 1
+    for response, label in zip(responses, labels):
+        if response is None:
+            raise ValueError(f"Response for '{label}' is not defined.")
+        plt.plot(response.t_vals, response.y_vals, label=f"{label}")
+        if iter == 1:
+            t_max = np.max(response.t_vals)
+            t_min = np.min(response.t_vals)
+        else:
+            t_max = max(t_max, np.max(response.t_vals))
+            t_min = min(t_min, np.min(response.t_vals))
+        iter += 1
+
     plt.title('Step Response')
-    plt.xlim(np.min(t_range),np.max(t_range))
+    plt.xlim(t_min,t_max)
     plt.xlabel('Time (s)')
     plt.ylabel('Response y(t)')
     plt.grid(True)
@@ -80,7 +78,43 @@ def step(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=
     plt.tight_layout()
     plt.show()
 
-def ramp(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=None):
+
+# def step(*tf_numerics, t_range: Optional[tuple] = (), delay_time: float = 0, n_points: int = 100, delay_times=None, labels=None):
+#     tf_numerics = tf_numerics
+#     delay_times = delay_times
+#     labels = labels
+#     if not tf_numerics:
+#         raise ValueError("At least one transfer function must be provided.")
+    
+#     if labels is None:
+#         labels = [f"TF {i+1}" for i in range(len(tf_numerics))]
+
+#     elif len(labels) != len(tf_numerics):
+#         raise ValueError("Number of labels must match number of transfer functions.")
+    
+#     if delay_times is None:
+#         delay_times = [1] * len(tf_numerics)
+#     elif len(delay_times) != len(tf_numerics):
+#         raise ValueError("Number of delay times must match number of transfer functions.")
+    
+#     plt.figure(figsize=(8, 5))
+    
+#     for tf, label, delay_time in zip(tf_numerics, labels, delay_times):
+#         if tf is None:
+#             raise ValueError(f"Laplace-domain function for '{label}' is not defined.")
+#         step_response = defs_tf.get_step_response(tf,t_range=(0,10),delay_time=delay_time,n_points=n_points)
+#         plt.plot(step_response.t_vals, step_response.y_vals, label=f"{label}")
+    
+#     plt.title('Step Response')
+#     plt.xlim(np.min(t_range),np.max(t_range))
+#     plt.xlabel('Time (s)')
+#     plt.ylabel('Response y(t)')
+#     plt.grid(True)
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
+
+def ramp(*tf_numerics, t_range=(0, 10), n_points=100, delay_times=None, labels=None):
     if not tf_numerics:
         raise ValueError("At least one transfer function must be provided.")
     
@@ -99,12 +133,8 @@ def ramp(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=
     for tf, label, delay_time in zip(tf_numerics, labels, delay_times):
         if tf is None:
             raise ValueError(f"Laplace-domain function for '{label}' is not defined.")
-        
-        step = defs_sympy.ramp_function(delay_time)
-        yt = defs_sympy.invL(tf * step)
-        new_t_range = (t_range[0]-delay_time,t_range[1]-delay_time)
-        t_vals, yt_vals = defs_sympy.lambdify(yt, new_t_range, n_points)
-        plt.plot(t_vals+delay_time, yt_vals, label=f"{label}")
+        ramp_response = defs_tf.get_ramp_response(tf,t_range=(0,10),delay_time=delay_time,n_points=n_points)
+        plt.plot(ramp_response.t_vals, ramp_response.y_vals, label=f"{label}")
     
     plt.title('Ramp Response')
     plt.xlim(np.min(t_range),np.max(t_range))
@@ -115,7 +145,7 @@ def ramp(*tf_numerics, t_range=(0, 10), n_points=1000, delay_times=None, labels=
     plt.tight_layout()
     plt.show()
 
-def bode(*tf_numerics, w_range=(), n_points=10000, labels=None):    
+def bode(*tf_numerics, w_range=(), n_points=100, labels=None):    
     if not tf_numerics:
         raise ValueError("At least one transfer function must be provided.")
     
@@ -169,11 +199,11 @@ def bode(*tf_numerics, w_range=(), n_points=10000, labels=None):
     plt.tight_layout()
     plt.show()
 
-def margin_plot(tf_numeric, w_range=(), n_points=10000):
+def margin_plot(tf_numeric, w_range=(), n_points=100):
     w_vals, F_vals = defs_tf.get_frequency_response(tf_numeric, w_range=w_range, n_points=n_points)
     magnitude = 20 * np.log10(np.abs(F_vals))
     phase = np.unwrap(np.angle(F_vals)) * (180/np.pi)
-    gm, pm, wcp, wcg, wcp_found, wcg_found = defs_tf.get_margin(tf_numeric, w_range=w_range, n_points=n_points)
+    gm, pm, wcg, wcp, wcg_found, wcp_found = defs_tf.get_margin(tf_numeric, w_range=w_range, n_points=n_points)
     w_min = np.min(w_vals)
     w_max = np.max(w_vals)
     mag_max = np.ceil(np.max(magnitude) / 20) * 20
@@ -210,7 +240,7 @@ def margin_plot(tf_numeric, w_range=(), n_points=10000):
     plt.tight_layout()
     plt.show()
 
-def pzmap(tf_numeric, x_range=(), y_range=(), n_points=1000):
+def pzmap(tf_numeric, x_range=(), y_range=(), n_points=100):
     zeros = defs_tf.get_zeros(tf_numeric)
     poles = defs_tf.get_poles(tf_numeric)
 
@@ -290,7 +320,7 @@ def pzmap(tf_numeric, x_range=(), y_range=(), n_points=1000):
     plt.legend(loc='lower left')
     plt.show()
 
-def nyquist(tf_numeric, w_range=(), n_points=10000):
+def nyquist(tf_numeric, w_range=(), n_points=100):
     w_vals, F_vals = defs_tf.get_frequency_response(tf_numeric, w_range=w_range, n_points=n_points)
     
     plt.figure()

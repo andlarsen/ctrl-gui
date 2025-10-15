@@ -20,7 +20,10 @@ class ControlSystem:
             tf_instance.update()
 
     def add_tf(self,name,description=''):
-        self.components.tfs[name] = TransferFunction(name, description, self.global_symbols, self.global_constants)
+        tf = TransferFunction(name, description, self.global_symbols, self.global_constants)
+        tf.parent = self.components
+        tf.control_system = self
+        self.components.tfs[name] = tf
 
     def remove_tf(self):
         pass
@@ -61,7 +64,7 @@ class ControlSystem:
         self.global_constants[name] = {
             "value": value,
             "description": description,
-            "unit": f"[{unit}]",
+            "unit": f"{unit}",
             "symbol": symbol,
             "is_global": is_global}
         for tf_name, tf_instance in self.components.tfs.items():
@@ -86,7 +89,7 @@ class ControlSystem:
         for tf_name in self.components.tfs:
             self.components.tfs[tf_name].edit_constant(name, value, description, unit, is_global=True)
 
-    def impulse(self, *tfs: str, t_range: Tuple[float, float] = (0, 10), n_points: int = 1000, delay_times: List[float] = None, sweep_params: Dict[str, List[float]] = None):    
+    def impulse(self, *tfs: str, delay_times: List[float] = None, sweep_params: Dict[str, List[float]] = None):    
         if not tfs:
             tfs = self.components.tfs.keys()
         
@@ -104,16 +107,15 @@ class ControlSystem:
             raise ValueError("Number of delay times must match number of transfer functions.")
 
         if not sweep_params or all(not values for values in sweep_params.values()):
-            tf_numerics = [tf_instance.tf.numeric for tf_instance in tf_instances]
+            responses = [tf_instance.tf.numeric for tf_instance in tf_instances]
             labels = list(tfs)
-            defs_plots.impulse(*tf_numerics, t_range=t_range, n_points=n_points, delay_times=delay_times, labels=labels)
+            defs_plots.plot_response(*responses, labels=labels)
             return
         
-        tf_numerics_list, delay_times_list, labels_list = defs_tf.sweep_tfs(self,tf_instances=tf_instances,delay_times=delay_times,sweep_params=sweep_params,is_global=True)
+        responses_list, labels_list = defs_tf.sweep_impulse_responses(self,tf_instances=tf_instances,delay_times=delay_times,sweep_params=sweep_params,is_global=True)
+        defs_plots.plot_response(*responses_list, labels=labels_list)
 
-        defs_plots.impulse(*tf_numerics_list, t_range=t_range, n_points=n_points, delay_times=delay_times_list, labels=labels_list)
-
-    def step(self, *tfs: str, t_range: Tuple[float, float] = (0, 10), n_points: int = 1000, delay_times: List[float] = None, sweep_params: Dict[str, List[float]] = None):    
+    def step(self, *tfs: str, delay_times: List[float] = None, sweep_params: Dict[str, List[float]] = None):    
         if not tfs:
             tfs = self.components.tfs.keys()
         
@@ -131,14 +133,13 @@ class ControlSystem:
             raise ValueError("Number of delay times must match number of transfer functions.")
 
         if not sweep_params or all(not values for values in sweep_params.values()):
-            tf_numerics = [tf_instance.tf.numeric for tf_instance in tf_instances]
+            step_responses = [tf_instance.step_response for tf_instance in tf_instances]
             labels = list(tfs)
-            defs_plots.step(*tf_numerics, t_range=t_range, n_points=n_points, delay_times=delay_times, labels=labels)
+            defs_plots.plot_response(*step_responses, labels=labels)
             return
         
-        tf_numerics_list, delay_times_list, labels_list = defs_tf.sweep_tfs(self,tf_instances=tf_instances,delay_times=delay_times,sweep_params=sweep_params,is_global=True)
-
-        defs_plots.step(*tf_numerics_list, t_range=t_range, n_points=n_points, delay_times=delay_times_list, labels=labels_list)
+        responses_list, labels_list = defs_tf.sweep_step_responses(self,tf_instances=tf_instances,delay_times=delay_times,sweep_params=sweep_params,is_global=True)
+        defs_plots.plot_response(*responses_list, labels=labels_list)
 
     def ramp(self, *tfs: str, t_range: Tuple[float, float] = (0, 10), n_points: int = 1000, delay_times: List[float] = None, sweep_params: Dict[str, List[float]] = None):    
         if not tfs:
@@ -167,7 +168,7 @@ class ControlSystem:
 
         defs_plots.ramp(*tf_numerics_list, t_range=t_range, n_points=n_points, delay_times=delay_times_list, labels=labels_list)
 
-    def bode(self, *tfs: str, w_range: Tuple[float, float] = (0, 10), n_points: int = 1000, sweep_params: Dict[str, List[float]] = None):    
+    def bode(self, *tfs: str, w_range: Tuple[float, float] = (0.1, 100), n_points: int = 1000, sweep_params: Dict[str, List[float]] = None):    
         if not tfs:
             tfs = self.components.tfs.keys()
         
