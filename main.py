@@ -12,8 +12,12 @@ def main():
     cs.components.tfs['G1'].add_constant('w_n',10)
     cs.components.tfs['G1'].add_constant('zeta',0.4)
     # cs.components.tfs['G1'].define_tf(lhs='ddot(y)+2*zeta*w_n*dot(y)+w_n**2*y',rhs='K*Kg*w_n**2*u')
-    cs.components.tfs['G1'].define_tf(num_coefs=['Kg'],den_coefs=[1,10])
-    # cs.components.tfs['G1'].print_all()
+    # cs.components.tfs['G1'].define_tf(num_coefs=['Kg'],den_coefs=[1,10])
+    cs.components.tfs['G1'].define_tf('Kg/(s+1)')
+    cs.components.tfs['G1'].impulse()
+    cs.components.tfs['G1'].step()
+    cs.components.tfs['G1'].ramp()
+    cs.components.tfs['G1'].print_all()
     # cs.components.tfs['G1'].bode()
     # cs.components.tfs['G1'].bode(w_range=(0.1,1000),sweep_params={'zeta':[0.1,0.5,1]})
     
@@ -57,8 +61,8 @@ def main():
                                             unit        = '-'                )
     
     cs.components.tfs['Gp'].define_tf('Kg*K*w_n**2/(s**2+2*zeta*w_n*s+w_n**2)')
-    cs.components.tfs['Gp'].print_all()
-    # cs.components.tfs['Gp'].impulse()
+    # cs.components.tfs['Gp'].print_all()
+    # cs.components.tfs['Gp'].ramp()
 
     # cs.impulse(sweep_params={'Kg': [1, 2]})
 
@@ -97,6 +101,7 @@ def main():
     # how to simulate?
     # input delay_time and time_range to impulse, steps etc, update_tf() to make new responses, and plot
     # print ramp response info: if no steady state error, print it!
+    # change title depending on response type
     
 
 if __name__ == "__main__":

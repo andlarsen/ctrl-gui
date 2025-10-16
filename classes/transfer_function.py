@@ -11,13 +11,12 @@ import classes.defs_plots as defs_plots
 import classes.defs_prints as defs_prints
 
 from typing import Dict, List, Any, Tuple
+from pprint import pprint
 
 from models.model_transfer_function import TransferFunctionModel
 from models.model_equation import EquationModel
 from models.model_zeropole import ZeroPoleModel
-from models.model_impulse_response import ImpulseResponse
-from models.model_step_response import StepResponse
-from models.model_ramp_response import RampResponse
+from models.model_response import Response
 
 class TransferFunction:
     def __init__(self, name, description, global_symbols, global_constants):
@@ -42,9 +41,9 @@ class TransferFunction:
         self.wcp_found = False
         self.gm = None
         self.pm = None
-        self.impulse_response = ImpulseResponse()
-        self.step_response = StepResponse()
-        self.ramp_response = RampResponse()
+        self.impulse_response = Response(response_type='impulse')
+        self.step_response = Response(response_type='step')
+        self.ramp_response = Response(response_type='ramp')
         self.define_input('u')
         self.define_output('y')
     
@@ -134,7 +133,7 @@ class TransferFunction:
                 "  define_tf(num_coefs=[...], den_coefs=[...])\n"
                 "  define_tf(lhs=..., rhs=...)"
             )
-        # Define numeric transfer function and get tf info
+
         self.tf.numeric = self.tf.symbolic.subs(self.get_constant_values())
         self.get_tf_info()
 
@@ -215,17 +214,23 @@ class TransferFunction:
 
     def get_tf_info(self):        
         # Define numerator
-        self.numerator.symbolic     = defs_tf.get_numerator(self.tf.symbolic)
-        self.numerator.numeric      = defs_tf.get_numerator(self.tf.numeric)
+        self.tf.numerator.symbolic              = defs_tf.get_numerator(self.tf.symbolic)
+        self.tf.numerator.numeric               = defs_tf.get_numerator(self.tf.numeric)
+        self.tf.numerator.coefficients.symbolic = defs_tf.get_coefficients(self.tf.numerator.symbolic)
+        self.tf.numerator.coefficients.numeric  = defs_tf.get_coefficients(self.tf.numerator.numeric)
 
         # Define denominator
-        self.denominator.symbolic   = defs_tf.get_denominator(self.tf.symbolic)
-        self.denominator.numeric    = defs_tf.get_denominator(self.tf.numeric)
-        
+        self.tf.denominator.symbolic                = defs_tf.get_denominator(self.tf.symbolic)
+        self.tf.denominator.numeric                 = defs_tf.get_denominator(self.tf.numeric)
+        self.tf.denominator.coefficients.symbolic   = defs_tf.get_coefficients(self.tf.denominator.symbolic)
+        self.tf.denominator.coefficients.numeric    = defs_tf.get_coefficients(self.tf.denominator.numeric)
+
+        self.tf.signal = defs_tf.define_signal(self.tf.numerator.coefficients.numeric,self.tf.denominator.coefficients.numeric)
+
         # Define differential equation from tf
         self.differential_equation.symbolic = defs_tf.get_equation(self.tf.symbolic, self.input, self.output)
-        self.differential_equation.numeric = defs_tf.get_equation(self.tf.numeric, self.input, self.output)
-        
+        self.differential_equation.numeric  = defs_tf.get_equation(self.tf.numeric, self.input, self.output)
+
         # Define zeros 
         self.zeros.symbolic         = defs_tf.get_zeros(self.tf.symbolic)
         self.zeros.numeric          = defs_tf.get_zeros(self.tf.numeric)
@@ -233,11 +238,11 @@ class TransferFunction:
         # Define poles
         self.poles.symbolic         = defs_tf.get_poles(self.tf.symbolic)
         self.poles.numeric          = defs_tf.get_poles(self.tf.numeric)
-
+        
         # Time-domain stuff
-        self.impulse_response       = defs_tf.get_impulse_response(self.tf.numeric, t_range=None, delay_time=0, n_tau=8, tol=1e-6)
-        self.step_response          = defs_tf.get_step_response(self.tf.numeric, t_range=None, delay_time=0, n_tau=8, tol=1e-6)
-        self.ramp_response          = defs_tf.get_ramp_response(self.tf.numeric, t_range=(0, 10), delay_time=0)
+        self.impulse_response       = defs_tf.get_time_response(self.tf, response_type='impulse', t_range=None, delay_time=0, n_tau=8, tol=1e-6)
+        self.step_response          = defs_tf.get_time_response(self.tf, response_type='step', t_range=None, delay_time=0, n_tau=8, tol=1e-6)
+        self.ramp_response          = defs_tf.get_time_response(self.tf, response_type='ramp', t_range=None, delay_time=0, n_tau=8, tol=1e-6)
 
         # Frequency-domain stuff
         self.w_range = defs_tf.get_frequency_response(self.tf.numeric, w_range=(), n_points=500)
@@ -252,10 +257,10 @@ class TransferFunction:
             if var_name not in self.constants:
                 raise ValueError(f"Sweep variable '{var_name}' not found in constants.")
             
-        responses_list, labels_list = defs_tf.sweep_responses(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)    
+        responses_list, labels_list = defs_tf.sweep_impulse_responses(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)    
         defs_plots.plot_response(*responses_list, labels=labels_list)
 
-    def step(self, delay_time: float = 0, sweep_params: Dict[str, List[float]] = None):
+    def step(self, delay_time: float = 1, sweep_params: Dict[str, List[float]] = None):
         if not sweep_params or all(not values for values in sweep_params.values()):
             defs_plots.plot_response(self.step_response,labels=[self.Name])
             return
@@ -263,20 +268,19 @@ class TransferFunction:
             if var_name not in self.constants:
                 raise ValueError(f"Sweep variable '{var_name}' not found in constants.")
             
-        responses, labels_list = defs_tf.sweep_responses(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)    
+        responses, labels_list = defs_tf.sweep_step_responses(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)    
         defs_plots.plot_response(*responses, labels=labels_list)
 
-    def ramp(self, t_range: Tuple[float, float] = (), n_points: int = 1000, delay_time: float = 1, sweep_params: Dict[str, List[float]] = None):
+    def ramp(self, delay_time: float = 1, sweep_params: Dict[str, List[float]] = None):
         if not sweep_params or all(not values for values in sweep_params.values()):
-            defs_plots.ramp(self.tf.numeric, t_range=t_range, n_points=n_points, delay_times=[delay_time], labels=[self.Name])
+            defs_plots.plot_response(self.ramp_response,labels=[self.Name])
             return
         for var_name in sweep_params.keys():
             if var_name not in self.constants:
                 raise ValueError(f"Sweep variable '{var_name}' not found in constants.")
-            
-        tf_numerics_list, delay_times_list, labels_list = defs_tf.sweep_tfs(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)
 
-        defs_plots.ramp(*tf_numerics_list, t_range=t_range, n_points=n_points, delay_times=delay_times_list, labels=labels_list)
+        responses, labels_list = defs_tf.sweep_ramp_responses(self,tf_instances=self.tf,delay_times=delay_time,sweep_params=sweep_params,is_global=False)    
+        defs_plots.plot_response(*responses, labels=labels_list)
 
     def bode(self, w_range: Tuple[float, float] = (0.1, 100), n_points: int = 10000, sweep_params: Dict[str, List[float]] = None):
         if not sweep_params or all(not values for values in sweep_params.values()):

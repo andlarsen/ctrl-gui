@@ -8,10 +8,11 @@ matplotlib.use('QtAgg')
 import matplotlib.pyplot as plt
 import classes.defs_sympy as defs_sympy
 
-from typing import Dict, List, Any, Tuple, Optional
-from models.model_impulse_response import ImpulseResponse, ImpulseResponseInfo
-from models.model_step_response import StepResponse, StepResponseInfo
-from models.model_ramp_response import RampResponse, RampResponseInfo
+from typing import Dict, List, Any, Tuple, Optional, Union
+from models.model_response import Response, ImpulseResponseInfo, StepResponseInfo, RampResponseInfo
+from models.model_transfer_function import TransferFunctionModel
+from models.model_polynomium import Polynomium
+from models.model_coefficients import Coefficients
 from models.model_metric import Metric
 
 def get_poles(tf):
@@ -32,6 +33,17 @@ def get_free_zeros():
 
 def get_free_poles():
     pass
+
+def get_coefficients(polynomium) -> list:
+    s = sp.Symbol('s')
+    polynomium = sp.Poly(polynomium, s)
+    coefficients = []
+    for c in polynomium.all_coeffs():
+        try:
+            coefficients.append(float(c))  
+        except:
+            coefficients.append(c)
+    return coefficients
 
 def get_numerator(tf):
     numerator, denominator = sp.fraction(tf)
@@ -136,6 +148,10 @@ def get_frequency_response(tf_numeric, w_range=(0.1,100), n_points=500):
     return w_vals, F_vals
 
 ## Define transfer function
+def define_signal(numerator_coefficients: sp.Poly=None, denominator_coefficients: sp.Poly=None) -> signal.TransferFunction:
+    system = signal.TransferFunction(numerator_coefficients, denominator_coefficients)
+    return system
+
 def from_string(tf_str,constants):
     s, t = defs_sympy.define_st()
     symbols = {'s': s, 't': t}
@@ -220,35 +236,30 @@ def from_equation(lhs,rhs,input_symbol,output_symbol,constants):
     tf = sp.together(Y_s / U)
     return tf
 
-def get_impulse_response(tf, t_range: Optional[tuple] = (), delay_time: float = 0, n_points: int = 500, n_tau: float = 6, tol: float = 1e-6) -> ImpulseResponse:
-    s = sp.symbols('s')
-    num, den = sp.fraction(tf)
-    num_poly = sp.Poly(num, s)
-    den_poly = sp.Poly(den, s)
-    num_coeffs = [float(c) for c in num_poly.all_coeffs()]
-    den_coeffs = [float(c) for c in den_poly.all_coeffs()]
+### Time responses
+
+def auto_scale_t_range(
+        tf:         TransferFunctionModel, 
+        t_range:    Optional[tuple] = (), 
+        delay_time: float = 0, 
+        n_tau:      float = 8, 
+        tol:        float = 1e-6) -> tuple[float,float]:
     
-    system = signal.TransferFunction(num_coeffs, den_coeffs)
+    poles = tf.signal.poles
     
     t_start = t_range[0] if t_range else 0.0
     t_end = t_range[1] if t_range else None
 
-    # --------------------------------------------------------
-    # 1. AUTO-SCALING LOGIC
-    # --------------------------------------------------------
     if t_end is None or t_end <= t_start:
-        
-        # Calculate poles
-        poles = system.poles
-        
-        # Default safety duration if calculation fails or system is unstable/marginal
-        T_sim = 10.0
-        
+            
+        # Initialize T_sim
+        T_sim = 10 
+
         # Find the dominant pole for stable systems
         if len(poles) > 0:
             # Check stability: any pole with Re(s) >= 0 (excluding numerical noise)
             unstable_or_marginal = np.any(np.real(poles) >= -tol)
-            
+
             if not unstable_or_marginal:
                 # System is stable. Estimate settling time.
                 
@@ -272,65 +283,84 @@ def get_impulse_response(tf, t_range: Optional[tuple] = (), delay_time: float = 
             # If system has no poles (e.g., pure gain), use a default
             t_end = T_sim + delay_time
 
-    # --------------------------------------------------------
-    # 2. RESPONSE CALCULATION
-    # --------------------------------------------------------
-    
-    # Ensure t_end is at least delay_time + a small buffer
-    t_end = max(t_end, delay_time + 1e-3)
+    t_range = (float(t_start),float(t_end))
 
+    return t_range
+
+def get_time_response(
+        tf: TransferFunctionModel, 
+        response_type: str = 'impulse',  # 'impulse', 'step', or 'ramp'
+        t_range: Optional[tuple] = (), 
+        delay_time: float = 0, 
+        n_points: int = 500, 
+        n_tau: float = 6, 
+        tol: float = 1e-6) -> Response:  # Returns unified Response model
+    
+    if not t_range:
+        t_range = auto_scale_t_range(tf=tf, t_range=t_range, delay_time=delay_time, n_tau=n_tau, tol=tol)
+    
+    t_start = t_range[0]
+    t_end = t_range[1]
+    t_end = max(t_end, delay_time + 1e-3)
+    
     t_vals = np.linspace(t_start, t_end, n_points)
     mask_after = t_vals >= delay_time
     y_vals = np.zeros_like(t_vals)
+    r_vals = np.zeros_like(t_vals)
     
     if np.any(mask_after):
         t_shifted = t_vals[mask_after] - delay_time
-        _, y_after = signal.impulse(system, T=t_shifted)
+        
+        # Choose the appropriate response function and define input signal
+        if response_type == 'impulse':
+            _, y_after = signal.impulse(tf.signal, T=t_shifted)
+            # Impulse approximation
+            if len(t_shifted) > 0:
+                r_vals[mask_after][0] = 1.0 / (t_shifted[1] - t_shifted[0]) if len(t_shifted) > 1 else 1.0
+                
+        elif response_type == 'step':
+            _, y_after = signal.step(tf.signal, T=t_shifted)
+            r_vals[mask_after] = 1.0
+            
+        elif response_type == 'ramp':
+            num = tf.signal.num
+            den = np.concatenate([tf.signal.den, [0]])
+            ramp_tf = signal.TransferFunction(num, den)
+            _, y_after = signal.step(ramp_tf, T=t_shifted)
+            r_vals[mask_after] = t_shifted
+            
+        else:
+            raise ValueError(f"Unknown response_type: {response_type}. Choose 'impulse', 'step', or 'ramp'")
+        
         y_vals[mask_after] = y_after
     
-    t_range = (t_vals[0],t_vals[-1])
+    t_range = (t_vals[0], t_vals[-1])
     
-    # Calculate info
-    info = get_impulse_response_info(t_vals, y_vals, delay_time)
+    # Get appropriate info based on response type
+    if response_type == 'impulse':
+        info = get_impulse_response_info(t_vals, y_vals, r_vals, delay_time, tol)
+    elif response_type == 'step':
+        info = get_step_response_info(t_vals, y_vals, r_vals, delay_time, tol)
+    elif response_type == 'ramp':
+        info = get_ramp_response_info(t_vals, y_vals, r_vals, delay_time, tol)
     
-    return ImpulseResponse(
+    return Response(  # Single unified return type
         t_vals=t_vals.tolist(), 
         y_vals=y_vals.tolist(),
+        r_vals=r_vals.tolist(),
         t_range=t_range,
         delay_time=delay_time,
+        response_type=response_type,
         info=info
     )
 
-# def get_impulse_response(tf, t_range=(0,10), delay_time=1, n_points=500) -> ImpulseResponse:
-#     s = sp.symbols('s')
-#     num, den = sp.fraction(tf)
-#     num_poly = sp.Poly(num, s)
-#     den_poly = sp.Poly(den, s)
-#     num_coeffs = [float(c) for c in num_poly.all_coeffs()]
-#     den_coeffs = [float(c) for c in den_poly.all_coeffs()]
-#     system = signal.TransferFunction(num_coeffs, den_coeffs)
+def get_impulse_response_info(
+        t_vals: list[float] = (), 
+        y_vals: list[float] = (), 
+        r_vals: list[float] = (),  # Added but not used for impulse
+        delay_time: float = 0, 
+        tol: float = 0.02) -> ImpulseResponseInfo:
     
-#     t_vals = np.linspace(*t_range, n_points)
-#     mask_after = t_vals >= delay_time
-#     y_vals = np.zeros_like(t_vals)
-    
-#     if np.any(mask_after):
-#         t_shifted = t_vals[mask_after] - delay_time
-#         _, y_after = signal.impulse(system, T=t_shifted)
-#         y_vals[mask_after] = y_after
-    
-#     # Calculate info
-#     info = get_impulse_response_info(t_vals, y_vals, delay_time)
-        
-#     # Return the complete model
-#     return ImpulseResponse(
-#         t_vals=t_vals.tolist(), 
-#         y_vals=y_vals.tolist(),
-#         delay_time=delay_time,
-#         info=info,
-#     )
-
-def get_impulse_response_info(t_vals, y_vals, delay_time, tol=0.02) -> ImpulseResponseInfo:
     y_vals = np.real_if_close(y_vals)
     
     # Remove values before delay
@@ -345,7 +375,6 @@ def get_impulse_response_info(t_vals, y_vals, delay_time, tol=0.02) -> ImpulseRe
     peak_idx = np.argmax(np.abs(y))
     t_peak = t[peak_idx] - delay_time
     y_peak = y[peak_idx]
-    y_initial = y[0] if len(y) > 0 else None
     
     # --- Integral (DC gain) ---
     integral = np.trapz(y, t)
@@ -370,6 +399,7 @@ def get_impulse_response_info(t_vals, y_vals, delay_time, tol=0.02) -> ImpulseRe
     
     # --- Time to half peak ---
     half_peak = y_peak / 2
+
     try:
         after_peak = y[peak_idx:]
         t_after_peak = t[peak_idx:]
@@ -452,94 +482,18 @@ def get_impulse_response_info(t_vals, y_vals, delay_time, tol=0.02) -> ImpulseRe
             info_args[field_name] = default_metric._replace(value=value)
         else:
             info_args[field_name] = Metric(value=value, label=field_name)
+    
     return ImpulseResponseInfo(**info_args)
 
-def get_step_response(tf, t_range: Optional[tuple] = (), delay_time: float = 0, n_points: int = 500, n_tau: float = 8, tol: float = 1e-6) -> StepResponse:
-    s = sp.symbols('s')
-    num, den = sp.fraction(tf)
-    num_poly = sp.Poly(num, s)
-    den_poly = sp.Poly(den, s)
-    num_coeffs = [float(c) for c in num_poly.all_coeffs()]
-    den_coeffs = [float(c) for c in den_poly.all_coeffs()]
-    
-    system = signal.TransferFunction(num_coeffs, den_coeffs)
-    
-    t_start = t_range[0] if t_range else 0.0
-    t_end = t_range[1] if t_range else None
-
-    # --------------------------------------------------------
-    # 1. AUTO-SCALING LOGIC
-    # --------------------------------------------------------
-    if t_end is None or t_end <= t_start:
-        
-        # Calculate poles
-        poles = system.poles
-        
-        # Default safety duration if calculation fails or system is unstable/marginal
-        T_sim = 10.0
-        
-        # Find the dominant pole for stable systems
-        if len(poles) > 0:
-            # Check stability: any pole with Re(s) >= 0 (excluding numerical noise)
-            unstable_or_marginal = np.any(np.real(poles) >= -tol)
-            
-            if not unstable_or_marginal:
-                # System is stable. Estimate settling time.
-                
-                # Characteristic Time Constant (tau) is 1 / |Re(p_dominant)|
-                # The dominant pole is the one closest to the jw-axis (smallest |Re(p)|)
-                stable_poles = poles[np.real(poles) < -tol]
-                if len(stable_poles) > 0:
-                    
-                    # Find the stable pole with the smallest magnitude of its real part
-                    abs_real_parts = np.abs(np.real(stable_poles))
-                    tau_max = 1.0 / np.min(abs_real_parts)
-                    
-                    # Simulation time T_sim is typically 4*tau to 5*tau for 2% settling
-                    T_settle_factor = n_tau
-                    T_sim = T_settle_factor * tau_max
-            
-            # Add delay time to the required simulation time
-            t_end = T_sim + delay_time
-            
-        else:
-            # If system has no poles (e.g., pure gain), use a default
-            t_end = T_sim + delay_time
-
-    # --------------------------------------------------------
-    # 2. RESPONSE CALCULATION
-    # --------------------------------------------------------
-    
-    # Ensure t_end is at least delay_time + a small buffer
-    t_end = max(t_end, delay_time + 1e-3)
-
-    t_vals = np.linspace(t_start, t_end, n_points)
-    mask_after = t_vals >= delay_time
-    y_vals = np.zeros_like(t_vals)
-    
-    if np.any(mask_after):
-        t_shifted = t_vals[mask_after] - delay_time
-        _, y_after = signal.step(system, T=t_shifted)
-        y_vals[mask_after] = y_after
-    
-    t_range = (t_vals[0],t_vals[-1])
-    
-    # Calculate info
-    info = get_step_response_info(t_vals, y_vals, delay_time)
-    
-    # Return the complete model
-    return StepResponse(
-        t_vals=t_vals.tolist(), 
-        y_vals=y_vals.tolist(),
-        t_range=t_range,
-        delay_time=delay_time,
-        info=info
-    )
-
-def get_step_response_info(t_vals: np.ndarray, y_vals: np.ndarray, delay_time: float, tol: float = 0.02) -> StepResponseInfo:
+def get_step_response_info(
+        t_vals: list[float] = (), 
+        y_vals: list[float] = (), 
+        r_vals: list[float] = (),
+        delay_time: float = 0, 
+        tol: float = 0.02) -> StepResponseInfo:
         
     y_vals = np.real_if_close(y_vals)
-    
+
     # Remove values before delay
     mask = t_vals >= delay_time
     t = t_vals[mask]
@@ -646,55 +600,13 @@ def get_step_response_info(t_vals: np.ndarray, y_vals: np.ndarray, delay_time: f
             info_args[field_name] = Metric(value=value, label=field_name)
     return StepResponseInfo(**info_args)
 
-def get_ramp_response(tf, t_range=(0, 10), delay_time=1, n_points=500) -> RampResponse:
-    """
-    Calculates the ramp response (1/s^2 input) of a system with a time delay.
-    """
-    s = sp.symbols('s')
-    num, den = sp.fraction(tf)
+def get_ramp_response_info(
+        t_vals: list[float] = (), 
+        y_vals: list[float] = (), 
+        r_vals: list[float] = (), 
+        delay_time: float = 0, 
+        tol: float = 0.02) -> RampResponseInfo:
     
-    # Standard Scipy setup
-    num_coeffs = [float(c) for c in sp.Poly(num, s).all_coeffs()]
-    den_coeffs = [float(c) for c in sp.Poly(den, s).all_coeffs()]
-    system = signal.TransferFunction(num_coeffs, den_coeffs)
-    
-    t_vals = np.linspace(*t_range, n_points)
-    r_vals = t_vals  # The ramp input: r(t) = t
-    y_vals = np.zeros_like(t_vals)
-    
-    mask_after = t_vals >= delay_time
-    
-    # Calculate response *after* the delay time
-    if np.any(mask_after):
-        t_shifted = t_vals[mask_after] - delay_time
-        
-        # Ramp input is the integral of the step response. 
-        # Scipy doesn't have a direct ramp function for TransferFunction objects, 
-        # so we calculate the step response of the system G(s)/s
-        
-        # Calculate the step response of the *system* G(s)
-        _, y_step = signal.step(system, T=t_shifted)
-        
-        # The ramp response y_ramp is the integral of the step response:
-        # y_ramp(t) = integral(y_step(tau) dtau)
-        y_after = np.cumsum(y_step) * (t_shifted[1] - t_shifted[0])
-        
-        y_vals[mask_after] = y_after
-    
-    info = get_ramp_response_info(t_vals, r_vals, y_vals, delay_time)
-        
-    return RampResponse(
-        t_vals=t_vals.tolist(), 
-        r_vals=r_vals.tolist(),
-        y_vals=y_vals.tolist(),
-        delay_time=delay_time,
-        info=info,
-    )
-
-def get_ramp_response_info(t_vals: np.ndarray, r_vals: np.ndarray, y_vals: np.ndarray, delay_time: float, tol: float = 0.05) -> RampResponseInfo:
-    """
-    Calculates key tracking and error metrics from the ramp response data.
-    """
     y_vals = np.real_if_close(y_vals)
     
     # --- Data Filtering ---
@@ -761,6 +673,7 @@ def get_ramp_response_info(t_vals: np.ndarray, r_vals: np.ndarray, y_vals: np.nd
 
     return RampResponseInfo(**info_args)
 
+### Sweep functions
 
 def sweep_tfs(self,tf_instances, delay_times=None, sweep_params: Dict[str, List[float]] = None, is_global: bool = False):
     sweep_variables = list(sweep_params.keys())
@@ -897,6 +810,55 @@ def sweep_step_responses(self,tf_instances, delay_times=None, sweep_params: Dict
             self.update()
             # tf_numeric = self.tf.numeric
             step_response = tf_instance.step_response
+            responses_list.append(step_response)
+            labels_list.append(f"{self.Name} ({base_label})")
+    
+        if is_global == True:
+            for var_name, value in original_values.items():
+                self.edit_global_constant(var_name, value=value)
+        else:
+            for var_name, value in original_values.items():
+                self.edit_constant(var_name, value=value)
+                
+    return responses_list, labels_list
+
+
+def sweep_ramp_responses(self,tf_instances, delay_times=None, sweep_params: Dict[str, List[float]] = None, is_global: bool = False):
+    sweep_variables = list(sweep_params.keys())
+    sweep_value_lists = list(sweep_params.values())
+    
+    if is_global == True:
+        original_values = {var: self.global_constants[var]['value'] for var in sweep_variables if var in self.global_constants}
+    else:
+        original_values = {var: self.constants[var]['value'] for var in sweep_variables if var in self.constants}
+
+    responses_list = []
+    labels_list = []
+
+    for combo_values in itertools.product(*sweep_value_lists):
+        combo_label_parts = []
+        
+        for var_name, value in zip(sweep_variables, combo_values):
+            if is_global == True:
+                self.edit_global_constant(var_name, value=value) 
+            else:
+                self.edit_constant(var_name, value=value) 
+            combo_label_parts.append(f"{var_name}={value}")
+
+        base_label = ", ".join(combo_label_parts)
+
+        try:
+            for i, tf_instance in enumerate(tf_instances):
+                self.update()
+                # tf_numeric = tf_instance.tf.numeric 
+                step_response = tf_instance.ramp_response
+                
+                responses_list.append(step_response)
+                labels_list.append(f"{tf_instance.Name} ({base_label})")
+        except:
+            self.update()
+            # tf_numeric = self.tf.numeric
+            step_response = tf_instance.ramp_response
             responses_list.append(step_response)
             labels_list.append(f"{self.Name} ({base_label})")
     

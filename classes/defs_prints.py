@@ -159,7 +159,7 @@ def print_ramp_response_info(self):
     print_order = [
         "y_final",
         "t_peak", "y_peak",
-        "Kv", "e_final", "e_max_tracking"
+        "Kv", "e_final", "e_max_tracking",
         "t_lag"
     ]
 

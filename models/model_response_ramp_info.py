@@ -3,7 +3,6 @@ from typing import NamedTuple, List, Dict, Any, Optional
 from models.model_metric import Metric
 
 class RampResponseInfo(NamedTuple):          
-
     y_final: Metric = Metric(value=np.nan,label="Final value", unit="-")                     
     t_peak: Metric = Metric(value=np.nan,label="Peak time", unit="s")             
     y_peak: Metric = Metric(value=np.nan,label="Peak value", unit="-")
