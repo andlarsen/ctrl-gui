@@ -14,10 +14,10 @@ def main():
     # cs.components.tfs['G1'].define_tf(lhs='ddot(y)+2*zeta*w_n*dot(y)+w_n**2*y',rhs='K*Kg*w_n**2*u')
     # cs.components.tfs['G1'].define_tf(num_coefs=['Kg'],den_coefs=[1,10])
     cs.components.tfs['G1'].define_tf('Kg/(s+1)')
-    cs.components.tfs['G1'].impulse()
-    cs.components.tfs['G1'].step()
-    cs.components.tfs['G1'].ramp()
-    cs.components.tfs['G1'].print_all()
+    # cs.components.tfs['G1'].impulse()
+    # cs.components.tfs['G1'].step()
+    # cs.components.tfs['G1'].ramp()
+    # cs.components.tfs['G1'].print_all()
     # cs.components.tfs['G1'].bode()
     # cs.components.tfs['G1'].bode(w_range=(0.1,1000),sweep_params={'zeta':[0.1,0.5,1]})
     
@@ -61,6 +61,8 @@ def main():
                                             unit        = '-'                )
     
     cs.components.tfs['Gp'].define_tf('Kg*K*w_n**2/(s**2+2*zeta*w_n*s+w_n**2)')
+
+
     # cs.components.tfs['Gp'].print_all()
     # cs.components.tfs['Gp'].ramp()
 

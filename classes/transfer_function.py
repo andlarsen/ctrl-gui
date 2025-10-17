@@ -248,6 +248,8 @@ class TransferFunction:
         self.w_range = defs_tf.get_frequency_response(self.tf.numeric, w_range=(), n_points=500)
         self.gm, self.pm, self.wcg, self.wcp, self.wcg_found, self.wcp_found = defs_tf.get_margin(self.tf.numeric, w_range=(), n_points=500)
 
+        print(self.step_response)
+
 ## Plots
     def impulse(self, delay_time: float = 0, sweep_params: Dict[str, List[float]] = None):
         if not sweep_params or all(not values for values in sweep_params.values()):
