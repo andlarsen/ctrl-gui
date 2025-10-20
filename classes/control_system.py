@@ -5,7 +5,7 @@ import classes.defs_tf as defs_tf
 
 from typing import Dict, List, Tuple, Any
 from models.model_components import ComponentsModel
-from classes.transfer_function import TransferFunction
+from classes.transfer_function import TransferFunctionObject
 
 class ControlSystem:
     def __init__(self, name):
@@ -20,7 +20,7 @@ class ControlSystem:
             tf_instance.update()
 
     def add_tf(self,name,description=''):
-        tf = TransferFunction(name, description, self.global_symbols, self.global_constants)
+        tf = TransferFunctionObject(name, description, self.global_symbols, self.global_constants)
         tf.parent = self.components
         tf.control_system = self
         self.components.tfs[name] = tf

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Any
-from classes.transfer_function import TransferFunction
+from classes.transfer_function import TransferFunctionObject
 
 @dataclass
 class ComponentsModel:
-    tfs: Dict[str, TransferFunction] = field(default_factory=dict)
+    tfs: Dict[str, TransferFunctionObject] = field(default_factory=dict)

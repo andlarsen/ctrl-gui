@@ -1,22 +1,54 @@
+
+import classes.defs_tf as defs_tf
+import sympy as sp
+
 from dataclasses import dataclass, field
 from typing import Optional
-import sympy as sp
-from models.model_coefficients import Coefficients
+from models.model_coefficients import CoefficientsModel
 
 @dataclass
-class Polynomium:
-    symbolic: Optional[sp.Expr] = None
-    numeric: Optional[sp.Expr] = None
-    coefficients: Coefficients = field(default_factory=Coefficients)
+class PolynomiumModel:
+    _symbolic: sp.Expr = field(default=sp.S.One, init=False, repr=False)
+    initial_symbolic: sp.Expr = None#field(default=sp.S.One)
+
+    _numeric: sp.Expr = field(default=sp.S.One, init=False, repr=False)
+    initial_numeric: sp.Expr = None#field(default=sp.S.One)
+
+    coefficients: CoefficientsModel = field(default_factory=CoefficientsModel)
 
     def __str__(self, indent: int = 2, name_width: int = 12, type_width: int = 30):
-        pad = " " * indent
+        pad_title = " " * indent
+        pad = " " * (indent+2)
         lines = [
-            f"Polynomium(",
+            f"{pad_title}PolynomiumModel(",
             f"{pad}{'symbolic:':<{name_width}} {str(type(self.symbolic)):>{type_width}} = {self.symbolic}",
             f"{pad}{'numeric:':<{name_width}} {str(type(self.numeric)):>{type_width}} = {self.numeric}",
             f"{pad}{'coefficients:':<{name_width}} {str(type(self.coefficients)):>{type_width}} =",
-            f"{self.coefficients.__str__(indent + 4, name_width, type_width)}",
-            f"{' ' * (indent - 2)})"
+            f"{self.coefficients.__str__(indent + 6, name_width, type_width)}",
+            f"{' ' * (indent)})"
         ]
         return "\n".join(lines)
+    
+    def __post_init__(self):
+        self.symbolic = self.initial_symbolic
+        self.numeric = self.initial_numeric
+
+    @property
+    def symbolic(self) -> sp.Expr:
+        return self._symbolic
+
+    @symbolic.setter
+    def symbolic(self, new_expr: sp.Expr):
+        self._symbolic = new_expr
+        if new_expr is not None:
+            self.coefficients.symbolic = defs_tf.get_coefficients(new_expr)
+
+    @property
+    def numeric(self) -> sp.Expr:
+        return self._numeric
+
+    @numeric.setter
+    def numeric(self, new_expr: sp.Expr):
+        self._numeric = new_expr
+        if new_expr is not None:
+            self.coefficients.numeric = defs_tf.get_coefficients(new_expr)

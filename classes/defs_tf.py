@@ -9,11 +9,12 @@ import matplotlib.pyplot as plt
 import classes.defs_sympy as defs_sympy
 
 from typing import Dict, List, Any, Tuple, Optional, Union
-from models.model_response import Response, ImpulseResponseInfo, StepResponseInfo, RampResponseInfo
+from models.model_response import ResponseModel, ImpulseResponseInfoModel, StepResponseInfoModel, RampResponseInfoModel
 from models.model_transfer_function import TransferFunctionModel
-from models.model_polynomium import Polynomium
-from models.model_coefficients import Coefficients
-from models.model_metric import Metric
+from models.model_polynomium import PolynomiumModel
+from models.model_coefficients import CoefficientsModel
+from models.model_metric import MetricModel
+
 
 def get_poles(tf):
     denominator = get_denominator(tf)
@@ -46,10 +47,16 @@ def get_coefficients(polynomium) -> list:
     return coefficients
 
 def get_numerator(tf):
+    if tf == 1:
+        numerator = sp.S.One
+        return numerator
     numerator, denominator = sp.fraction(tf)
     return numerator
 
 def get_denominator(tf):
+    if tf == 1:
+        denominator = sp.S.One
+        return denominator
     numerator, denominator = sp.fraction(tf)
     return denominator
 
@@ -152,20 +159,12 @@ def define_signal(numerator_coefficients: sp.Poly=None, denominator_coefficients
     system = signal.TransferFunction(numerator_coefficients, denominator_coefficients)
     return system
 
-def from_string(tf_str,constants):
-    s, t = defs_sympy.define_st()
-    symbols = {'s': s, 't': t}
-    for name, const_data in constants.items():
-        symbols[name] = sp.Symbol(name) 
+def from_string(tf_str,symbols):
     locals().update(symbols)
     tf = sp.together(eval(defs_sympy.translate_string(tf_str)))
     return tf
 
-def from_coefs(num_coefs,den_coefs,constants):
-    s, t = defs_sympy.define_st() 
-    symbols = {'s': s, 't': t}
-    for name, const_data in constants.items():
-        symbols[name] = sp.Symbol(name) 
+def from_coefs(num_coefs,den_coefs,symbols):
     locals().update(symbols)
     
     def evaluate_coefficient(coef_input):
@@ -186,11 +185,7 @@ def from_coefs(num_coefs,den_coefs,constants):
 
     return tf
 
-def from_equation(lhs,rhs,input_symbol,output_symbol,constants):
-    s, t = defs_sympy.define_st()
-    symbols = {'s': s, 't': t}
-    for name, const_data in constants.items():
-        symbols[name] = sp.Symbol(name) 
+def from_equation(lhs,rhs,input_symbol,output_symbol,symbols):
     locals().update(symbols)
 
     # Load inputs and outputs
@@ -294,7 +289,7 @@ def get_time_response(
         delay_time: float = 0, 
         n_points: int = 500, 
         n_tau: float = 6, 
-        tol: float = 1e-6) -> Response:  # Returns unified Response model
+        tol: float = 1e-6) -> ResponseModel:  # Returns unified Response model
     
     if not t_range:
         t_range = auto_scale_t_range(tf=tf, t_range=t_range, delay_time=delay_time, n_tau=n_tau, tol=tol)
@@ -344,7 +339,7 @@ def get_time_response(
     elif response_type == 'ramp':
         info = get_ramp_response_info(t_vals, y_vals, r_vals, delay_time, tol)
     
-    return Response(  # Single unified return type
+    return ResponseModel(  # Single unified return type
         t_vals=t_vals.tolist(), 
         y_vals=y_vals.tolist(),
         r_vals=r_vals.tolist(),
@@ -359,7 +354,7 @@ def get_impulse_response_info(
         y_vals: list[float] = (), 
         r_vals: list[float] = (),  # Added but not used for impulse
         delay_time: float = 0, 
-        tol: float = 0.02) -> ImpulseResponseInfo:
+        tol: float = 0.02) -> ImpulseResponseInfoModel:
     
     y_vals = np.real_if_close(y_vals)
     
@@ -369,7 +364,7 @@ def get_impulse_response_info(
     y = y_vals[mask]
     
     if len(y) == 0:
-        return ImpulseResponseInfo()
+        return ImpulseResponseInfoModel()
     
     # --- Peak characteristics ---
     peak_idx = np.argmax(np.abs(y))
@@ -459,7 +454,7 @@ def get_impulse_response_info(
         damping_ratio = None
         natural_freq = None
 
-    defaults = ImpulseResponseInfo._field_defaults
+    defaults = ImpulseResponseInfoModel._field_defaults
     
     calculated_data = {
         "t_peak": t_peak,
@@ -481,16 +476,16 @@ def get_impulse_response_info(
         if default_metric:
             info_args[field_name] = default_metric._replace(value=value)
         else:
-            info_args[field_name] = Metric(value=value, label=field_name)
+            info_args[field_name] = MetricModel(value=value, label=field_name)
     
-    return ImpulseResponseInfo(**info_args)
+    return ImpulseResponseInfoModel(**info_args)
 
 def get_step_response_info(
         t_vals: list[float] = (), 
         y_vals: list[float] = (), 
         r_vals: list[float] = (),
         delay_time: float = 0, 
-        tol: float = 0.02) -> StepResponseInfo:
+        tol: float = 0.02) -> StepResponseInfoModel:
         
     y_vals = np.real_if_close(y_vals)
 
@@ -500,7 +495,7 @@ def get_step_response_info(
     y = y_vals[mask]
     
     if len(y) == 0:
-        return StepResponseInfo
+        return StepResponseInfoModel
     
     t_relative = t - delay_time
     
@@ -575,7 +570,7 @@ def get_step_response_info(
         except (ValueError, ZeroDivisionError, TypeError):
             pass 
 
-    defaults = StepResponseInfo._field_defaults
+    defaults = StepResponseInfoModel._field_defaults
     
     calculated_data = {
         "y_final": y_final,
@@ -597,15 +592,15 @@ def get_step_response_info(
         if default_metric:
             info_args[field_name] = default_metric._replace(value=value)
         else:
-            info_args[field_name] = Metric(value=value, label=field_name)
-    return StepResponseInfo(**info_args)
+            info_args[field_name] = MetricModel(value=value, label=field_name)
+    return StepResponseInfoModel(**info_args)
 
 def get_ramp_response_info(
         t_vals: list[float] = (), 
         y_vals: list[float] = (), 
         r_vals: list[float] = (), 
         delay_time: float = 0, 
-        tol: float = 0.02) -> RampResponseInfo:
+        tol: float = 0.02) -> RampResponseInfoModel:
     
     y_vals = np.real_if_close(y_vals)
     
@@ -616,10 +611,10 @@ def get_ramp_response_info(
     y = y_vals[mask]
     
     if len(y) < 20: # Need enough points to determine steady-state behavior
-        return RampResponseInfo(
-            steady_state_error=Metric(), velocity_error_const=Metric(), t_lag=Metric(), 
-            max_tracking_error=Metric(), delay_time=Metric(value=delay_time, label="Time Delay", unit="s"), 
-            y_final=Metric(), t_peak=Metric(), y_peak=Metric()
+        return RampResponseInfoModel(
+            steady_state_error=MetricModel(), velocity_error_const=MetricModel(), t_lag=MetricModel(), 
+            max_tracking_error=MetricModel(), delay_time=MetricModel(value=delay_time, label="Time Delay", unit="s"), 
+            y_final=MetricModel(), t_peak=MetricModel(), y_peak=MetricModel()
         )
     
     # --- 1. Steady-State Error (ess) ---
@@ -650,7 +645,7 @@ def get_ramp_response_info(
     # --- 6. Final Values ---
     y_final = y[-1]
 
-    defaults = RampResponseInfo._field_defaults
+    defaults = RampResponseInfoModel._field_defaults
     
     calculated_data = {
         "y_final": y_final,
@@ -669,9 +664,9 @@ def get_ramp_response_info(
         if default_metric:
             info_args[field_name] = default_metric._replace(value=value)
         else:
-            info_args[field_name] = Metric(value=value, label=field_name)
+            info_args[field_name] = MetricModel(value=value, label=field_name)
 
-    return RampResponseInfo(**info_args)
+    return RampResponseInfoModel(**info_args)
 
 ### Sweep functions
 
