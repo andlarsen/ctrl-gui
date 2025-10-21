@@ -1,5 +1,5 @@
 
-import classes.defs_tf as defs_tf
+import utilities.utils_transfer_function as utils_tf
 import sympy as sp
 
 from dataclasses import dataclass, field
@@ -41,7 +41,7 @@ class PolynomiumModel:
     def symbolic(self, new_expr: sp.Expr):
         self._symbolic = new_expr
         if new_expr is not None:
-            self.coefficients.symbolic = defs_tf.get_coefficients(new_expr)
+            self.coefficients.symbolic = utils_tf.get_coefficients(new_expr)
 
     @property
     def numeric(self) -> sp.Expr:
@@ -51,4 +51,4 @@ class PolynomiumModel:
     def numeric(self, new_expr: sp.Expr):
         self._numeric = new_expr
         if new_expr is not None:
-            self.coefficients.numeric = defs_tf.get_coefficients(new_expr)
+            self.coefficients.numeric = utils_tf.get_coefficients(new_expr)

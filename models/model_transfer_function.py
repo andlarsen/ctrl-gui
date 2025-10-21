@@ -2,18 +2,19 @@
 import sympy as sp
 import numpy as np
 import scipy.signal as sig
-import classes.defs_tf as defs_tf
-import classes.defs_sympy as defs_sympy
+import utilities.utils_transfer_function as utils_tf
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Any
 from models.model_polynomium import PolynomiumModel
 from models.model_equation import EquationModel
 from models.model_response import ResponseModel, ImpulseResponseInfoModel, StepResponseInfoModel, RampResponseInfoModel
 from models.model_constant import ConstantModel
+from models.model_symbol import SymbolModel
 from models.model_zeropole import ZeroPoleModel
 from models.model_coefficients import CoefficientsModel
 from models.model_metric import MetricModel
+from models.model_margin import MarginModel
 
 @dataclass
 class TransferFunctionModel:
@@ -24,8 +25,10 @@ class TransferFunctionModel:
     input: Tuple[str,str] = field(default_factory=tuple)
     output: Tuple[str,str] = field(default_factory=tuple)
 
-    symbols: Dict[str,sp.Symbol] = field(default_factory=dict)
+    symbols: Dict[str,SymbolModel] = field(default_factory=dict)
+    global_symbols: Optional[Dict[str,sp.Symbol]] = field(default_factory=dict)
     constants: Dict[str, ConstantModel] = field(default_factory=dict)
+    global_constants: Optional[Dict[str,ConstantModel]] = field(default_factory=dict)
     functions: Dict[str,sp.Expr] = field(default_factory=dict)
 
     _symbolic: Optional[sp.Expr] = field(default=sp.S.One, init=False, repr=False)
@@ -50,17 +53,9 @@ class TransferFunctionModel:
 
     w_range: Optional[Tuple[float,float]] = None
     frequency_response: Optional[ResponseModel] = field(default_factory=lambda: ResponseModel(response_type='frequency'))
+    margin: Optional[MarginModel] = None
 
-        # self.zeros = ZeroPoleModel()
-        # self.poles = ZeroPoleModel()
-        # self.w_range = ()
-        # self.wcg = None
-        # self.wcg_found = False
-        # self.wcp = None
-        # self.wcp_found = False
-        # self.gm = None
-        # self.pm = None
-    
+
     @property
     def symbolic(self) -> Optional[sp.Expr]:
         return self._symbolic
@@ -71,8 +66,8 @@ class TransferFunctionModel:
         self._symbolic = new_expr
         if new_expr is not None:
             # Trigger cascade to children by calling their property setters
-            self.numerator.symbolic = defs_tf.get_numerator(new_expr)
-            self.denominator.symbolic = defs_tf.get_denominator(new_expr)
+            self.numerator.symbolic = utils_tf.get_numerator(new_expr)
+            self.denominator.symbolic = utils_tf.get_denominator(new_expr)
             # You'd also update self.poles.symbolic and self.zeros.symbolic here.
         
     @property
@@ -85,21 +80,21 @@ class TransferFunctionModel:
         self._numeric = new_expr
         if new_expr is not None:
             # Trigger cascade to children by calling their property setters
-            self.numerator.numeric = defs_tf.get_numerator(new_expr)
-            self.denominator.numeric = defs_tf.get_denominator(new_expr)
+            self.numerator.numeric = utils_tf.get_numerator(new_expr)
+            self.denominator.numeric = utils_tf.get_denominator(new_expr)
             
-            self.signal = defs_tf.define_signal(self.numerator.coefficients.numeric,self.denominator.coefficients.numeric)
+            self.signal = utils_tf.define_signal(self.numerator.coefficients.numeric,self.denominator.coefficients.numeric)
 
-            self.differential_equation.symbolic = defs_tf.get_equation(self.symbolic, self.input, self.output)
-            self.differential_equation.numeric  = defs_tf.get_equation(self.numeric, self.input, self.output)            
+            self.differential_equation.symbolic = utils_tf.get_differential_equation(self.symbolic, self.input, self.output, self.symbols)
+            self.differential_equation.numeric  = utils_tf.get_differential_equation(self.numeric, self.input, self.output, self.symbols)            
 
             # Define zeros 
-            self.zeros.symbolic         = defs_tf.get_zeros(self.symbolic)
-            self.zeros.numeric          = defs_tf.get_zeros(self.numeric)
+            self.zeros.symbolic         = utils_tf.get_zeros(self.symbolic)
+            self.zeros.numeric          = utils_tf.get_zeros(self.numeric)
 
             # Define poles
-            self.poles.symbolic         = defs_tf.get_poles(self.symbolic)
-            self.poles.numeric          = defs_tf.get_poles(self.numeric)
+            self.poles.symbolic         = utils_tf.get_poles(self.symbolic)
+            self.poles.numeric          = utils_tf.get_poles(self.numeric)
 
             # Time-domain stuff
             self.t_range                = self.get_t_range(t_range=(),delay_time=0,n_tau=8,tol=1e-6)
@@ -108,92 +103,223 @@ class TransferFunctionModel:
             self.ramp_response          = self.get_time_response(response_type='ramp', t_range=None, delay_time=0, n_points=500, tol=1e-6)
 
             # # Frequency-domain stuff
-            self.w_range                = self.get_w_range()
+            self.w_range                = self.get_w_range(n_decades_above_w_max=2,n_decades_below_w_min=0)
             self.frequency_response     = self.get_frequency_response(response_type='frequency', w_range=None, n_points=500)
+            self.margin                 = self.get_margin()
 
-    def __str__(self, indent: int = 2, name_width: int = 12, type_width: int = 30):
+    
+    def __str__(self, indent: int = 2, name_width: int = 12, type_width: int = 30) -> str:
         pad_title = " " * indent
-        pad = " " * (indent+2)
+        pad = " " * (indent + 2)
 
-        # Format basic fields
+        # --- Format simple fields ---
         t_range_str = f"({self.t_range[0]:.3g}, {self.t_range[1]:.3g})" if self.t_range else "None"
         w_range_str = f"({self.w_range[0]:.3g}, {self.w_range[1]:.3g})" if self.w_range else "None"
 
-        def indent_multiline(text: str, pad: str) -> str:
+        # --- Indent Multiline Helper (Modified for better alignment) ---
+        def indent_multiline(text: str, pad_start: str) -> str:
             lines = str(text).splitlines()
             if len(lines) <= 1:
                 return text
-            return ("\n" + pad).join(lines)
             
-        # Prepare aligned signal string
-        signal_str = indent_multiline(
-            self.signal,
-            pad + " " * (name_width + type_width + 5)
-        )
+            # All lines after the first one are prepended with the calculated padding
+            return "\n".join([lines[0]] + [pad_start + line for line in lines[1:]])
         
+        def format_nested_object(attr_name: str, obj: Any, indent: int, name_width: int, type_width: int) -> List[str]:
+            """Helper function to format and print a nested object that has a custom __str__."""
+            pad = " " * (indent + 2)
+            header = f"{pad}{attr_name + ':':<{name_width}} {str(type(obj)):>{type_width}} ="
+            
+            # Recursively call the custom __str__ of the nested object with increased indentation
+            body_lines = obj.__str__(indent=indent + 6, name_width=name_width, type_width=type_width)
+            
+            return [header, body_lines]
+        
+        def format_dict_entry(key: str, model: Any, indent: int, name_width: int, type_width: int) -> List[str]:
+            sub_indent = indent + 6 
+            key_line = f"{' ' * sub_indent}Key: '{key}'"
+            try:
+                model_str = model.__str__(
+                    indent=sub_indent, 
+                    name_width=name_width, 
+                    type_width=type_width
+                )
+            except TypeError:
+                model_str = f"{' ' * sub_indent}Value: {str(model)}"
+            except AttributeError:
+                model_str = f"{' ' * sub_indent}Value: {model}"
+            return [key_line, model_str]
+        
+        # Calculate the exact padding needed to align subsequent lines under the signal value
+        signal_alignment_pad = " " * (indent + name_width + type_width + 6)
+
+        # Prepare aligned signal string
+        signal_str = indent_multiline(self.signal, signal_alignment_pad)
+        
+        # --- Build Lines List ---
         lines = [
-            f"{pad_title}TransferFunctionModel(",
+            f"{pad_title}TransferFunctionModel("
+        ]
+
+        # BASIC FIELDS
+        lines.extend([
             f"{pad}{'name:':<{name_width}} {str(type(self.name)):>{type_width}} = {self.name}",
             f"{pad}{'description:':<{name_width}} {str(type(self.description)):>{type_width}} = {self.description}",
             f"----------------",
             f"{pad}{'tf_name:':<{name_width}} {str(type(self.tf_name)):>{type_width}} = {self.tf_name}",
             f"{pad}{'input:':<{name_width}} {str(type(self.input)):>{type_width}} = {self.input}",
-            f"{pad}{'output:':<{name_width}} {str(type(self.output)):>{type_width}} = {self.output}",
-            f"{pad}{'symbols:':<{name_width}} {str(type(self.symbols)):>{type_width}} = {self.symbols}",
-            f"{pad}{'constants:':<{name_width}} {str(type(self.constants)):>{type_width}} = {self.constants}",
+            f"{pad}{'output:':<{name_width}} {str(type(self.output)):>{type_width}} = {self.output}"])
+        lines.append(
+            f"{pad}{'symbols:':<{name_width}} {str(type(self.symbols)):>{type_width}} = ")
+        for key, symbol_model_instance in self.symbols.items():
+            lines.extend(format_dict_entry(
+                key, 
+                symbol_model_instance, 
+                indent=indent + 4, 
+                name_width=name_width, 
+                type_width=type_width
+            ))
+        lines.append(
+            f"{pad}{'constants:':<{name_width}} {str(type(self.constants)):>{type_width}} = "        )
+        for key, constant_model_instance in self.constants.items():
+            lines.extend(format_dict_entry(
+                key, 
+                constant_model_instance, 
+                indent=indent + 4, 
+                name_width=name_width, 
+                type_width=type_width
+            ))
+        lines.extend([
             f"{pad}{'functions:':<{name_width}} {str(type(self.functions)):>{type_width}} = {self.functions}",
             f"----------------",
             f"{pad}{'symbolic:':<{name_width}} {str(type(self.symbolic)):>{type_width}} = {self.symbolic}",
             f"{pad}{'numeric:':<{name_width}} {str(type(self.numeric)):>{type_width}} = {self.numeric}",
+            # SIGNAL: The multiline signal text starts immediately after the equals sign
             f"{pad}{'signal:':<{name_width}} {str(type(self.signal)):>{type_width}} = {signal_str}",
             f"----------------",
-            f"{pad}{'numerator:':<{name_width}} {str(type(self.numerator)):>{type_width}} =",
-            f"{self.numerator.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-            f"{pad}{'denominator:':<{name_width}} {str(type(self.denominator)):>{type_width}} =",
-            f"{self.denominator.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-            f"{pad}{'zeros:':<{name_width}} {str(type(self.zeros)):>{type_width}} =",
-            f"{self.zeros.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-            f"{pad}{'poles:':<{name_width}} {str(type(self.poles)):>{type_width}} =",
-            f"{self.poles.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+        ])
+        
+        lines.extend(format_nested_object('numerator', self.numerator, indent, name_width, type_width))
+        lines.extend(format_nested_object('denominator', self.denominator, indent, name_width, type_width))
+        lines.extend(format_nested_object('zeros', self.zeros, indent, name_width, type_width))
+        lines.extend(format_nested_object('poles', self.poles, indent, name_width, type_width))
+
+        lines.extend([
+            f"----------------"
+        ])
+        lines.extend(format_nested_object('differential_equation', self.differential_equation, indent, name_width, type_width))
+
+        lines.extend([
             f"----------------",
-            f"{pad}{'differential_equation:':<{name_width}} {str(type(self.differential_equation)):>{type_width}} =",
-            f"{self.differential_equation.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+            f"{pad}{'t_range:':<{name_width}} {str(type(self.t_range)):>{type_width}} = {t_range_str}",
+        ])
+        lines.extend(format_nested_object('impulse_response', self.impulse_response, indent, name_width, type_width))
+        lines.extend(format_nested_object('step_response', self.step_response, indent, name_width, type_width))
+        lines.extend(format_nested_object('ramp_response', self.ramp_response, indent, name_width, type_width))
+
+        lines.extend([
             f"----------------",
-            f"{pad}{'t_range:':<{name_width}} {str(type(self.t_range)).replace('class ', ''):>{type_width}} = {t_range_str}",
-            f"{pad}{'impuse_response:':<{name_width}} {str(type(self.impulse_response)):>{type_width}} =",
-            f"{self.impulse_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-            f"{pad}{'step_response:':<{name_width}} {str(type(self.step_response)):>{type_width}} =",
-            f"{self.step_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-            f"{pad}{'ramp_response:':<{name_width}} {str(type(self.ramp_response)):>{type_width}} =",
-            f"{self.ramp_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-            f"----------------",
-            f"{pad}{'w_range:':<{name_width}} {str(type(self.w_range)).replace('class ', ''):>{type_width}} = {w_range_str}",
-            f"{pad}{'frequency_response:':<{name_width}} {str(type(self.frequency_response)):>{type_width}} =",
-            f"{self.frequency_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-            f")"
-        ]
+            f"{pad}{'w_range:':<{name_width}} {str(type(self.w_range)):>{type_width}} = {w_range_str}",
+        ])
+        lines.extend(format_nested_object('frequency_response', self.frequency_response, indent, name_width, type_width))
+        lines.extend(format_nested_object('margin', self.margin, indent, name_width, type_width))
+
+        lines.append(f"{' ' * indent})")
+        
         return "\n".join(lines)
+    # def __str__(self, indent: int = 2, name_width: int = 12, type_width: int = 30):
+    #     pad_title = " " * indent
+    #     pad = " " * (indent+2)
+
+    #     # Format basic fields
+    #     t_range_str = f"({self.t_range[0]:.3g}, {self.t_range[1]:.3g})" if self.t_range else "None"
+    #     w_range_str = f"({self.w_range[0]:.3g}, {self.w_range[1]:.3g})" if self.w_range else "None"
+
+    #     def indent_multiline(text: str, pad: str) -> str:
+    #         lines = str(text).splitlines()
+    #         if len(lines) <= 1:
+    #             return text
+    #         return lines[0] + "\n" + "\n".join([pad + line for line in lines[1:]])
+        
+    #     def format_nested(attr_name, obj, indent, name_width, type_width):
+    #         pad = " " * (indent + 2)
+    #         header = f"{pad}{attr_name + ':':<{name_width}} {str(type(obj)):>{type_width}} ="
+    #         body = obj.__str__(indent=indent + 6, name_width=name_width, type_width=type_width)
+    #         return [header, body]
+            
+    #     # Prepare aligned signal string
+    #     signal_str = indent_multiline(
+    #         self.signal,
+    #         pad + " " * (name_width + type_width + 5)
+    #     )
+        
+    #     lines = [
+    #         f"{pad_title}TransferFunctionModel(",
+    #         f"{pad}{'name:':<{name_width}} {str(type(self.name)):>{type_width}} = {self.name}",
+    #         f"{pad}{'description:':<{name_width}} {str(type(self.description)):>{type_width}} = {self.description}",
+    #         f"----------------",
+    #         f"{pad}{'tf_name:':<{name_width}} {str(type(self.tf_name)):>{type_width}} = {self.tf_name}",
+    #         f"{pad}{'input:':<{name_width}} {str(type(self.input)):>{type_width}} = {self.input}",
+    #         f"{pad}{'output:':<{name_width}} {str(type(self.output)):>{type_width}} = {self.output}",
+    #         f"{pad}{'symbols:':<{name_width}} {str(type(self.symbols)):>{type_width}} = {self.symbols}",
+    #         f"{pad}{'constants:':<{name_width}} {str(type(self.constants)):>{type_width}} = {self.constants}",
+    #         f"{pad}{'functions:':<{name_width}} {str(type(self.functions)):>{type_width}} = {self.functions}",
+    #         f"----------------",
+    #         f"{pad}{'symbolic:':<{name_width}} {str(type(self.symbolic)):>{type_width}} = {self.symbolic}",
+    #         f"{pad}{'numeric:':<{name_width}} {str(type(self.numeric)):>{type_width}} = {self.numeric}",
+    #         f"{pad}{'signal:':<{name_width}} {str(type(self.signal)):>{type_width}} = {signal_str}",
+    #         f"----------------",
+    #         f"{pad}{'numerator:':<{name_width}} {str(type(self.numerator)):>{type_width}} =",
+    #         f"{self.numerator.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"{pad}{'denominator:':<{name_width}} {str(type(self.denominator)):>{type_width}} =",
+    #         f"{self.denominator.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"{pad}{'zeros:':<{name_width}} {str(type(self.zeros)):>{type_width}} =",
+    #         f"{self.zeros.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"{pad}{'poles:':<{name_width}} {str(type(self.poles)):>{type_width}} =",
+    #         f"{self.poles.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"----------------",
+    #         f"{pad}{'differential_equation:':<{name_width}} {str(type(self.differential_equation)):>{type_width}} =",
+    #         f"{self.differential_equation.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"----------------",
+    #         f"{pad}{'t_range:':<{name_width}} {str(type(self.t_range)):>{type_width}} = {t_range_str}",
+    #         f"{pad}{'impulse_response:':<{name_width}} {str(type(self.impulse_response)):>{type_width}} =",
+    #         f"{self.impulse_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"{pad}{'step_response:':<{name_width}} {str(type(self.step_response)):>{type_width}} =",
+    #         f"{self.step_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"{pad}{'ramp_response:':<{name_width}} {str(type(self.ramp_response)):>{type_width}} =",
+    #         f"{self.ramp_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"----------------",
+    #         f"{pad}{'w_range:':<{name_width}} {str(type(self.w_range)):>{type_width}} = {w_range_str}",
+    #         f"{pad}{'frequency_response:':<{name_width}} {str(type(self.frequency_response)):>{type_width}} =",
+    #         f"{self.frequency_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f"{pad}{'margin:':<{name_width}} {str(type(self.margin)):>{type_width}} =",
+    #         f"{self.margin.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
+    #         f")"
+    #     ]
+    #     return "\n".join(lines)
 
     def __post_init__(self):
-        self.define_st()
+        # if self.global_symbols:
+        #     self.symbols = self.global_symbols.copy()
+        # if self.global_constants:
+        #     self.constants = self.global_constants.copy()
+
         self.name = self.name.capitalize()
+        self.add_st()
         self.define_tf_name(self.name)
         self.define_input('u')
         self.define_output('y')
 
         self.symbolic = self.initial_symbolic
         self.numeric = self.initial_numeric
-
-        # self.get_tf_info()
-        
-
-###### HELPER FUNCTIONS ########
-
+       
 ## I/O functions
-    def define_input(self, name: str):
+    def define_input(
+            self, 
+            name: str) -> None:
         try:
-            s = self.symbols['s']
-            t = self.symbols['t']
+            s = self.symbols['s']['symbol']
+            t = self.symbols['t']['symbol']
         except KeyError:
             print("Error: SymPy symbols 's' and 't' must be defined in self.symbols before calling define_input.")
             return 
@@ -219,10 +345,12 @@ class TransferFunctionModel:
         self.functions[ft_name] = self.input[0]
         self.functions[Fs_name] = self.input[1]
 
-    def define_output(self, name: str):
+    def define_output(
+            self, 
+            name: str) -> None:
         try:
-            s = self.symbols['s']
-            t = self.symbols['t']
+            s = self.symbols['s']['symbol']
+            t = self.symbols['t']['symbol']
         except KeyError:
             print("Error: SymPy symbols 's' and 't' must be defined in self.symbols before calling define_output.")
             return 
@@ -248,11 +376,12 @@ class TransferFunctionModel:
         self.functions[ft_name] = self.output[0]
         self.functions[Fs_name] = self.output[1]
 
-
-    def define_tf_name(self, name: str):
+    def define_tf_name(
+            self, 
+            name: str) -> None:
         try:
-            s = self.symbols['s']
-            t = self.symbols['t']
+            s = self.symbols['s']['symbol']
+            t = self.symbols['t']['symbol']
         except KeyError:
             print("Error: SymPy symbols 's' and 't' must be defined in self.symbols before calling define_tf_name.")
             return 
@@ -278,21 +407,40 @@ class TransferFunctionModel:
         self.functions[ft_name] = self.tf_name[0]
         self.functions[Fs_name] = self.tf_name[1]
 
-
 ## Symbol functions
-    def define_st(self):
-        self.add_symbol('s')
-        self.add_symbol('t', is_real=True)
+    def add_st(
+            self) -> None:
+        if 's' not in self.symbols:
+            self.add_symbol('s', is_constant=False)
+        if 't' not in self.symbols:
+            self.add_symbol('t', is_real=True, is_constant=False)
     
-    def add_symbol(self, name: str, is_real=None, is_positive=None):
+    def add_symbol(
+            self, 
+            name: str, 
+            description: str='None',
+            is_real: bool=None, 
+            is_positive: bool=None,
+            is_constant: bool=False,
+            is_global: bool=False) -> SymbolModel:
+        
         if name in self.symbols:
             print(f"Warning: Symbol '{name}' already exists.")
             return
         symbol = sp.symbols(name, real = is_real, positive = is_positive)
-        self.symbols[name] = symbol
+        self.symbols[name] = {
+            "symbol": symbol,
+            "description": description,
+            "is_real": is_real,
+            "is_positive": is_positive,
+            "is_constant": is_constant,
+            "is_global": is_global}        
         return symbol
     
-    def remove_symbol(self, name: str):
+    def remove_symbol(
+            self, 
+            name: str) -> None:
+        
         if name not in self.symbols:
             print(f"Warning: Symbol '{name}' not found.")
             return
@@ -305,11 +453,18 @@ class TransferFunctionModel:
         del self.symbols[name]
         
 ## Constant functions
-    def add_constant(self, name: str, value: float, description='None', unit='-', is_global=False):
+    def add_constant(
+            self, 
+            name: str, 
+            value: float, 
+            description='None', 
+            unit='-', 
+            is_global=False) -> None:
+        
         if name in self.constants:
             print(f"Warning: Symbol '{name}' already exists.")
             return
-        symbol = self.add_symbol(name=name, is_real=True)
+        symbol = self.add_symbol(name=name, is_real=True, is_constant=True, is_global=is_global)
         self.constants[name] = {
             "value": value,
             "description": description,
@@ -317,7 +472,10 @@ class TransferFunctionModel:
             "symbol": symbol,
             "is_global": is_global}        
         
-    def remove_constant(self,name: str):
+    def remove_constant(
+            self,
+            name: str) -> None:
+        
         if name not in self.constants:
             print(f"Warning: Constant '{name}' not found.")
             return
@@ -356,7 +514,13 @@ class TransferFunctionModel:
             
         print(f"Constant '{name}' successfully removed.")
 
-    def edit_constant(self, name: str, value: float, description='None', unit='-', is_global=False):
+    def edit_constant(
+            self, 
+            name: str, 
+            value: float, 
+            description='None', 
+            unit='-', 
+            is_global=False) -> None:
         if name in self.constants:
             symbol = self.constants[name]['symbol']
         else:
@@ -373,11 +537,15 @@ class TransferFunctionModel:
         if self.symbolic is not None:
             self.numeric = self.symbolic.subs(self.get_constant_values())
 
-    def get_constant_values(self):
+    def get_constant_values(
+            self) -> Dict[sp.Symbol,float]:
         return {data["symbol"]: data["value"] for name, data in self.constants.items()}
 
 ## Transfer function functions
-    def define_tf(self, *args, **kwargs):
+    def define_tf(
+            self, 
+            *args, 
+            **kwargs) -> None:
         """
         Define transfer function from various input formats:
             define_tf("1/(s+1)")                            # from string
@@ -388,19 +556,19 @@ class TransferFunctionModel:
         # Determine input type and get symbolic transfer function
         if len(args) == 1 and isinstance(args[0], str):
             # From string
-            self.symbolic = defs_tf.from_string(args[0], self.symbols)
+            self.symbolic = utils_tf.from_string(args[0], self.symbols)
             
         elif 'num_coefs' in kwargs and 'den_coefs' in kwargs:
             # From coefficients
             num_coefs = kwargs.get('num_coefs', [])
             den_coefs = kwargs.get('den_coefs', [])
-            self.symbolic = defs_tf.from_coefs(num_coefs, den_coefs, self.constants)
+            self.symbolic = utils_tf.from_coefs(num_coefs, den_coefs, self.constants)
             
         elif 'lhs' in kwargs and 'rhs' in kwargs:
             # From differential equation
             lhs = kwargs['lhs']
             rhs = kwargs['rhs']
-            self.symbolic = defs_tf.from_equation(lhs, rhs, self.input, self.output, self.constants)
+            self.symbolic = utils_tf.from_equation(lhs, rhs, self.input, self.output, self.constants)
             
         else:
             raise ValueError(
@@ -411,8 +579,6 @@ class TransferFunctionModel:
             )
         self.numeric = self.symbolic.subs(self.get_constant_values())
         
-
-
 ## Zeros and poles functions
 
 
@@ -467,24 +633,46 @@ class TransferFunctionModel:
 
         return self.t_range
 
-    def get_w_range(self) -> tuple[float,float]:
+    def get_w_range(
+            self,
+            n_decades_above_w_max: int = 1,
+            n_decades_below_w_min: int = 1) -> tuple[float,float]:
         
         zeros = self.zeros.numeric
         poles = self.poles.numeric
         
         all_freqs = []
+        
+        # Extract the absolute values of the real part of poles/zeros (corner frequencies)
         if poles is not None:
-            all_freqs += [abs(p.evalf().as_real_imag()[0]) for p in poles]
+            all_freqs += [
+                abs(p.evalf().as_real_imag()[0]) 
+                for p in poles 
+                if abs(p.evalf().as_real_imag()[0]) > 0
+            ]
         if zeros is not None:
-            all_freqs += [abs(z.evalf().as_real_imag()[0]) for z in zeros]
+            all_freqs += [
+                abs(z.evalf().as_real_imag()[0]) 
+                for z in zeros 
+                if abs(z.evalf().as_real_imag()[0]) > 0
+            ]
+            
         if all_freqs:
-            min_freq, max_freq = float(min(all_freqs)), float(max(all_freqs))
-            min_freq = 10**(np.floor(np.log10(min_freq)))/10 if min_freq > 0 else 0.01
-            max_freq = 10**(np.ceil(np.log10(max_freq)))*10 if max_freq > 0 else 10
+            w_min_raw = float(min(all_freqs))
+            w_max_raw = float(max(all_freqs))
+
+            min_exponent = np.floor(np.log10(w_min_raw)) - n_decades_below_w_min
+            max_exponent = np.ceil(np.log10(w_max_raw)) + n_decades_above_w_max
+
+            min_freq = 10**min_exponent
+            max_freq = 10**max_exponent
+            
             self.w_range = (min_freq, max_freq)
             return self.w_range
         else:
-            self.w_range = (0.1, 100)
+            # Fallback case if no finite poles or zeros exist (e.g., a simple gain)
+            # The decade parameters don't apply here, so use the sensible default
+            self.w_range = (0.01, 100)
             return self.w_range
 
     def get_time_response(
@@ -566,14 +754,19 @@ class TransferFunctionModel:
         if self.numeric == 1:
             F_vals = np.ones_like(w_vals, dtype=complex)
         else:
-            s = self.symbols['s']
+            s = self.symbols['s']['symbol']
             s_vals = 1j * w_vals
             F_func = sp.lambdify(s, self.numeric, modules=['numpy'])
             F_vals = F_func(s_vals)
         
+        mag_vals = 20 * np.log10(np.abs(F_vals))
+        phase_vals = np.unwrap(np.angle(F_vals)) * (180/np.pi)
+        
         return ResponseModel( 
             w_vals=w_vals.tolist(), 
             F_vals=F_vals.tolist(),
+            mag_vals=mag_vals.tolist(),
+            phase_vals=phase_vals.tolist(),
             response_type=response_type,
             # info=info
         )
@@ -899,3 +1092,37 @@ class TransferFunctionModel:
                 info_args[field_name] = MetricModel(value=value, label=field_name)
 
         return RampResponseInfoModel(**info_args)
+    
+    def get_margin(self):
+        magnitude = np.array(self.frequency_response.mag_vals)
+        phase = np.array(self.frequency_response.phase_vals)
+
+        gain_crossings = np.where(np.diff(np.sign(magnitude)))[0]
+        phase_crossings = np.where(np.diff(np.sign(phase + 180)))[0]
+
+        if gain_crossings.size > 0:
+            w_gain_crossover_found = True
+            w_gain_crossover = self.frequency_response.w_vals[gain_crossings[0]]
+            phase_margin = 180 + phase[gain_crossings[0]]
+        else:
+            w_gain_crossover_found = False
+            w_gain_crossover = None
+            phase_margin = None
+
+        if phase_crossings.size > 0:
+            w_phase_crossover_found = True
+            w_phase_crossover = self.frequency_response.w_vals[phase_crossings[0]]
+            gain_margin = -magnitude[phase_crossings[0]]
+        else:
+            w_phase_crossover_found = False
+            w_phase_crossover = None
+            gain_margin = None
+
+        return MarginModel(
+            gain_margin=gain_margin,
+            w_phase_crossover=w_phase_crossover,
+            w_phase_crossover_found=w_phase_crossover_found,
+            phase_margin=phase_margin,
+            w_gain_crossover=w_gain_crossover,
+            w_gain_crossover_found=w_gain_crossover_found,
+        )

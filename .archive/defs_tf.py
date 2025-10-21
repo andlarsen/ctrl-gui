@@ -795,14 +795,14 @@ def sweep_step_responses(self,tf_instances, delay_times=None, sweep_params: Dict
 
         try:
             for i, tf_instance in enumerate(tf_instances):
-                self.update()
+                # self.update()
                 # tf_numeric = tf_instance.tf.numeric 
                 step_response = tf_instance.step_response
                 
                 responses_list.append(step_response)
                 labels_list.append(f"{tf_instance.Name} ({base_label})")
         except:
-            self.update()
+            # self.update()
             # tf_numeric = self.tf.numeric
             step_response = tf_instance.step_response
             responses_list.append(step_response)

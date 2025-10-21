@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 import sympy as sp
-import scipy.signal as sig
 
 @dataclass
 class EquationModel:

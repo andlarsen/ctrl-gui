@@ -5,16 +5,16 @@ from dataclasses import asdict
 ## Prints
 def print_name(self):
     print('')
-    print(f'{self.name}(t) = {self.output[0]} / {self.input[0]}')
-    print(f'{self.Name}(s) = {self.output[1]} / {self.input[1]}')
+    print(f'{self.name}(s) = {self.output[1]} / {self.input[1]}')
     if self.description:
         print('')
         print(f'Description: {self.description}')
 
 def print_symbols(self):
     print("Symbols:")
-    for symbol in self.symbols:
-        print(f"  {symbol}, is_real: {symbol.is_real}, is_positive: {symbol.is_positive}")
+    # for symbol in self.symbols:
+    for symbol, data in self.symbols.items():
+        print(f"  {symbol}, \tis_real: {data['is_real']}, \tis_positive: {data['is_positive']}, \tis_constant: {data['is_constant']}\t - {data['description']}")
 
 def print_constants(self):
     print('Constants:')
@@ -36,12 +36,12 @@ def print_differential_equation(self):
     print(f"Numeric:    {self.differential_equation.numeric.lhs} = {self.differential_equation.numeric.rhs}")
 
 def print_tf(self):
-    if self.tf.symbolic is None:
+    if self.symbolic is None:
         print("Laplace-domain function F(s) is not defined.")
         return
     print(f"Transfer function:")
-    print(f"Symbolic:   {self.Name}(s) = {self.tf.symbolic}")
-    print(f"Numeric:    {self.Name}(s) = {self.tf.numeric}")
+    print(f"Symbolic:   {self.tf_name}(s) = {self.symbolic}")
+    print(f"Numeric:    {self.tf_name}(s) = {self.numeric}")
 
 def print_numerator(self):
     print(f"Numerator:")
@@ -55,9 +55,6 @@ def print_denominator(self):
 
 def print_zeros(self):
     if self.zeros.numeric:
-        # print("Zeros: (symbolic)")
-        # for z in self.zeros.symbolic:
-        #     print(f"  {sp.simplify(z)}")
         print("Zeros: (numeric)")
         for z in self.zeros.numeric:
             print(f"  {z}")
@@ -67,10 +64,6 @@ def print_zeros(self):
 import sympy as sp
 def print_poles(self):
     if self.poles.numeric:
-        # print("Poles: (symbolic)")
-        # print(f"  {self.poles.symbolic[0]}")
-        # for p in self.poles.symbolic:
-        #     print(f"  {sp.simplify(p)}")
         print("Poles: (numeric)")
         for p in self.poles.numeric:
             print(f"  {p}")
@@ -78,15 +71,15 @@ def print_poles(self):
         print("No poles exist")
 
 def print_margin(self):
-    if self.wcg is not None:
-        print(f"Gain Crossover Frequency (wcg): {self.wcg:.2f} rad/s")
-        print(f"Phase Margin (PM): {self.pm:.2f} degrees")
+    if self.margin.w_gain_crossover is not None:
+        print(f"Gain Crossover Frequency (wcg): {self.margin.w_gain_crossover:.2f} rad/s")
+        print(f"Phase Margin (PM): {self.margin.phase_margin:.2f} degrees")
     else:
         print("No Gain Crossover Frequency found.")
 
-    if self.wcp is not None:
-        print(f"Phase Crossover Frequency (wcp): {self.wcp:.2f} rad/s")
-        print(f"Gain Margin (GM): {self.gm:.2f} dB")
+    if self.margin.w_phase_crossover is not None:
+        print(f"Phase Crossover Frequency (wcp): {self.margin.w_phase_crossover:.2f} rad/s")
+        print(f"Gain Margin (GM): {self.margin.gain_margin:.2f} dB")
     else:
         print("No Phase Crossover Frequency found.")
 

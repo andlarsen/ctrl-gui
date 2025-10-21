@@ -12,6 +12,8 @@ class ResponseModel:
     r_vals: Optional[List[float]] = None
     w_vals: Optional[List[float]] = None
     F_vals: Optional[List[float]] = None
+    mag_vals: Optional[List[float]] = None
+    phase_vals: Optional[List[float]] = None
     delay_time: Optional[float] = None
     response_type: Optional[str] = None
     info: Optional[Union[ImpulseResponseInfoModel, StepResponseInfoModel, RampResponseInfoModel]] = None
@@ -35,6 +37,8 @@ class ResponseModel:
                 f"{pad}{'response_type:':<{name_width}} {str(type(self.response_type)).replace('class ', ''):>{type_width}} = {self.response_type}",
                 f"{pad}{'w_vals:':<{name_width}} {str(type(self.w_vals)).replace('class ', ''):>{type_width}} = {format_list_preview(self.w_vals)}",
                 f"{pad}{'F_vals:':<{name_width}} {str(type(self.F_vals)).replace('class ', ''):>{type_width}} = {format_list_preview(self.F_vals)}",
+                f"{pad}{'mag_vals:':<{name_width}} {str(type(self.mag_vals)).replace('class ', ''):>{type_width}} = {format_list_preview(self.mag_vals)}",
+                f"{pad}{'phase_vals:':<{name_width}} {str(type(self.phase_vals)).replace('class ', ''):>{type_width}} = {format_list_preview(self.phase_vals)}",
                 f"{pad}{'info:':<{name_width}} {str(type(self.info)):>{type_width}} =",
                 f"{self.info.__str__(indent + next_indent, name_width, type_width)}",
                 f"{pad_title})"

@@ -1,5 +1,5 @@
 from typing import Dict
-from classes.control_system import ControlSystem
+from classes.class_control_system import ControlSystem
 
 
 class ControlEnvironment:
