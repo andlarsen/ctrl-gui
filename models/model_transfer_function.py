@@ -1,36 +1,75 @@
+"""
+Transfer Function Model Module
 
+This module defines the TransferFunctionModel dataclass which represents a complete
+transfer function system with symbolic/numeric representations, time/frequency responses,
+and various analytical properties.
+
+Author: Andreas
+Date: 2025
+"""
+
+# Import of modules
 import sympy as sp
 import numpy as np
 import scipy.signal as sig
-import utilities.utils_transfer_function as utils_tf
 
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple, Dict, Any
+
+# Import all utilities
+import utilities.utils_transfer_function as utils_tf
+
+# Import all model dependencies
 from models.model_polynomium import PolynomiumModel
 from models.model_equation import EquationModel
-from models.model_response import ResponseModel, ImpulseResponseInfoModel, StepResponseInfoModel, RampResponseInfoModel
+from models.model_response import (
+    ResponseModel, 
+    ImpulseResponseInfoModel, 
+    StepResponseInfoModel, 
+    RampResponseInfoModel)
 from models.model_constant import ConstantModel
 from models.model_symbol import SymbolModel
 from models.model_zeropole import ZeroPoleModel
-from models.model_coefficients import CoefficientsModel
 from models.model_metric import MetricModel
 from models.model_margin import MarginModel
 
+# Import logger
+import logging
+from utilities.logger import get_logger, header, subheader, subsubheader
+log = get_logger(__name__, level=logging.DEBUG, logfile='logs/main.log')
+
+# ============================================================================
+# MAIN TRANSFER FUNCTION MODEL
+# ============================================================================
+
 @dataclass
 class TransferFunctionModel:
+    # ========================================
+    # Basic Identification
+    # ========================================
     name: str = ""
     description: str = ""
 
+    # ========================================
+    # Signal Definitions
+    # ========================================
     tf_name: Tuple[str,str] = field(default_factory=tuple)
     input: Tuple[str,str] = field(default_factory=tuple)
     output: Tuple[str,str] = field(default_factory=tuple)
 
+    # ========================================
+    # Symbolic Environment
+    # ========================================
     symbols: Dict[str,SymbolModel] = field(default_factory=dict)
     global_symbols: Optional[Dict[str,sp.Symbol]] = field(default_factory=dict)
     constants: Dict[str, ConstantModel] = field(default_factory=dict)
     global_constants: Optional[Dict[str,ConstantModel]] = field(default_factory=dict)
     functions: Dict[str,sp.Expr] = field(default_factory=dict)
 
+    # ========================================
+    # Transfer Function Representations
+    # ========================================
     _symbolic: Optional[sp.Expr] = field(default=sp.S.One, init=False, repr=False)
     initial_symbolic: Optional[sp.Expr] = field(default=sp.S.One)
 
@@ -39,74 +78,277 @@ class TransferFunctionModel:
 
     signal: Optional[sig.TransferFunction] = None
 
+    # ========================================
+    # Polynomial Representations
+    # ========================================
     numerator: PolynomiumModel = field(default_factory=PolynomiumModel)
     denominator: PolynomiumModel = field(default_factory=PolynomiumModel)
     poles: ZeroPoleModel = field(default_factory=ZeroPoleModel)
     zeros: ZeroPoleModel = field(default_factory=ZeroPoleModel)
 
+    # ========================================
+    # Differential Equation
+    # ========================================
     differential_equation: Optional[EquationModel] = field(default_factory=EquationModel)
     
+    # ========================================
+    # Time-Domain Analysis
+    # ========================================
     t_range: Optional[Tuple[float,float]] = None
     impulse_response: Optional[ResponseModel] = field(default_factory=lambda: ResponseModel(response_type='impulse'))
     step_response: Optional[ResponseModel] = field(default_factory=lambda: ResponseModel(response_type='step'))
     ramp_response: Optional[ResponseModel] = field(default_factory=lambda: ResponseModel(response_type='ramp'))
 
+    # ========================================
+    # Frequency-Domain Analysis
+    # ========================================
     w_range: Optional[Tuple[float,float]] = None
     frequency_response: Optional[ResponseModel] = field(default_factory=lambda: ResponseModel(response_type='frequency'))
     margin: Optional[MarginModel] = None
 
+# ========================================================================
+# LOGGER HELPER FUNCTIONS
+# ========================================================================
+    def _safe_update(self, function: callable, component_name: str, 
+                    fallback_value: Any = None, critical: bool = False) -> Any:
+        """
+        Safely execute an update function with error handling and logging.
+        """
+        try:
+            result = function()
+            log.debug(f"TransferFunctionModel({self.name}): Successfully updated {component_name}",
+                      stacklevel=2)
+            return result
+        except Exception as e:
+            log.error(f"TransferFunctionModel({self.name}): Failed to update {component_name}: {e}", exc_info=True)
+            if critical:
+                raise
+            return fallback_value
 
+# ========================================================================
+# PROPERTY ACCESSORS (WITH CASCADE UPDATES)
+# ========================================================================
     @property
     def symbolic(self) -> Optional[sp.Expr]:
+        """Get the symbolic transfer function expression."""
+        log.debug(f"TransferFunctionModel({self.name}): Getting @property.symbolic")
         return self._symbolic
 
     @symbolic.setter
-    def symbolic(self, new_expr: sp.Expr):
-        """CASACADE: Updates the numerator and denominator models."""
-        self._symbolic = new_expr
-        if new_expr is not None:
-            # Trigger cascade to children by calling their property setters
-            self.numerator.symbolic = utils_tf.get_numerator(new_expr)
-            self.denominator.symbolic = utils_tf.get_denominator(new_expr)
-            # You'd also update self.poles.symbolic and self.zeros.symbolic here.
+    def symbolic(self, new_tf_symbolic: sp.Expr):
+        """
+        Set symbolic transfer function and cascade updates to child models.
+        """
+        subsubheader(log, f"TransferFunctionModel({self.name}): symbolic.setter triggered", level=logging.DEBUG)
+        log.debug(f"TransferFunctionModel({self.name}): Setting new_tf_symbolic = {new_tf_symbolic}")
+
+        # Type check
+        if new_tf_symbolic is not None and not isinstance(new_tf_symbolic, sp.Basic):
+            log.error(f"TransferFunctionModel({self.name}): Invalid type passed to symbolic setter. Must be a SymPy expression or None")
+            raise TypeError(f"TransferFunctionModel({self.name}): Invalid type passed to symbolic setter. Must be a SymPy expression or None")
+        
+        # Skip update if new symbolic transfer function is identical to the current one.
+        if new_tf_symbolic == self._symbolic:
+            log.debug(f"TransferFunctionModel({self.name}): new_tf_symbolic is identical to self._num_symboliceric = {self._symbolic}")
+            log.debug(f"TransferFunctionModel({self.name}): Skipping update of symbolic representations")
+            return
+        
+        # Store the new symbolic transfer function
+        self._symbolic = new_tf_symbolic
+        log.info(f"TransferFunctionModel({self.name}): self._symbolic = {new_tf_symbolic}")
+
+        if new_tf_symbolic is not None:
+            subsubheader(log, f"TransferFunctionModel({self.name}): Updating symbolic representations", level=logging.DEBUG)
+            self.numerator.symbolic = self._safe_update(
+                function=lambda: utils_tf.get_numerator(new_tf_symbolic),
+                component_name="self.numerator.symbolic",
+                critical=True,
+                fallback_value=None)
+            
+            self.denominator.symbolic = self._safe_update(
+                function=lambda: utils_tf.get_denominator(new_tf_symbolic),
+                component_name="self.denominator.symbolic",
+                critical=True,
+                fallback_value=None)
+            
+            self.zeros.symbolic = self._safe_update(
+                function=lambda: utils_tf.get_zeros(new_tf_symbolic),
+                component_name="self.zeros.symbolic",
+                critical=True,
+                fallback_value=None)
+            
+            self.poles.symbolic = self._safe_update(
+                function=lambda: utils_tf.get_poles(new_tf_symbolic),
+                component_name="self.poles.symbolic",
+                critical=True,
+                fallback_value=None)
+            
+            self.differential_equation.symbolic = self._safe_update(
+                function=lambda: utils_tf.get_differential_equation(new_tf_symbolic, self.input, self.output, self.symbols),
+                component_name="self.differential_equation.symbolic",
+                critical=True,
+                fallback_value=None)
+                
+            subsubheader(log, f"TransferFunctionModel({self.name}): End of updating symbolic representation", level=logging.DEBUG)
+
+        else:
+            log.warning(f"TransferFunctionModel({self.name}): new_tf_symbolic == None. Skipping symbolic representations")
         
     @property
     def numeric(self) -> Optional[sp.Expr]:
+        """Get the numeric transfer function expression."""
+        log.debug(f"TransferFunctionModel({self.name}): Getting @property.numeric")
         return self._numeric
 
     @numeric.setter
-    def numeric(self, new_expr: sp.Expr):
-        """CASACADE: Updates the numeric numerator and denominator models."""
-        self._numeric = new_expr
-        if new_expr is not None:
-            # Trigger cascade to children by calling their property setters
-            self.numerator.numeric = utils_tf.get_numerator(new_expr)
-            self.denominator.numeric = utils_tf.get_denominator(new_expr)
+    def numeric(self, new_tf_numeric: sp.Expr):
+        """
+        Set numeric transfer function and cascade updates to all dependent models.
+        """
+
+        subsubheader(log, f"TransferFunctionModel({self.name}): numeric.setter triggered", level=logging.DEBUG)
+        log.debug(f"TransferFunctionModel({self.name}): Setting new_tf_numeric = {new_tf_numeric}")
+
+        # Type safety
+        if new_tf_numeric is not None and not isinstance(new_tf_numeric, sp.Basic):
+            log.error(f"TransferFunctionModel({self.name}): Invalid type passed to numeric setter. Must be a SymPy expression or None")
+            raise TypeError(f"TransferFunctionModel({self.name}): Invalid type passed to numeric setter. Must be a SymPy expression or None")
+        
+        # Skip update if new numeric transfer function is identical to the current one.
+        if new_tf_numeric == self._numeric:
+            log.debug(f"TransferFunctionModel({self.name}): new_tf_numeric is identical to self._numeric = {self._numeric}")
+            log.debug(f"TransferFunctionModel({self.name}): Skipping update of numeric representations")
+            return
+
+        # Store the new numeric transfer function
+        self._numeric = new_tf_numeric
+        log.info(f"TransferFunctionModel({self.name}): self._numeric = {new_tf_numeric}")
+
+        if new_tf_numeric is not None:
+            subsubheader(log, f"TransferFunctionModel({self.name}): Updating numeric representations", level=logging.DEBUG)
+            self.numerator.numeric = self._safe_update(
+                function=lambda: utils_tf.get_numerator(new_tf_numeric),
+                component_name="self.numerator.numeric",
+                critical=True,
+                fallback_value=None)
             
-            self.signal = utils_tf.define_signal(self.numerator.coefficients.numeric,self.denominator.coefficients.numeric)
+            self.denominator.numeric = self._safe_update(
+                function=lambda: utils_tf.get_denominator(new_tf_numeric),
+                component_name="self.denominator.numeric",
+                critical=True,
+                fallback_value=None)
+            
+            self.zeros.numeric = self._safe_update(
+                function=lambda: utils_tf.get_zeros(new_tf_numeric),
+                component_name="self.zeros.numeric",
+                critical=True,
+                fallback_value=None)
+            
+            self.poles.numeric = self._safe_update(
+                function=lambda: utils_tf.get_poles(new_tf_numeric),
+                component_name="self.poles.numeric",
+                critical=True,
+                fallback_value=None)
+            
+            self.differential_equation.numeric = self._safe_update(
+                function=lambda: utils_tf.get_differential_equation(new_tf_numeric, self.input, self.output, self.symbols),
+                component_name="self.differential_equation.numeric",
+                critical=True,
+                fallback_value=None)
+            subsubheader(log, f"TransferFunctionModel({self.name}): End of updating numeric representations", level=logging.DEBUG)
+        else: 
+            log.warning(f"TransferFunctionModel({self.name}): new_tf_numeric == None. Skipping numeric representations")
+            
+        if new_tf_numeric is not None:
+            subsubheader(log, f"TransferFunctionModel({self.name}): Updating signal representation", level=logging.DEBUG)
+            self.signal = self._safe_update(
+                function=lambda: utils_tf.define_signal(self.numerator.coefficients.numeric,self.denominator.coefficients.numeric),
+                component_name="self.signal",
+                critical=True,
+                fallback_value=None)
+            subsubheader(log, f"TransferFunctionModel({self.name}): End of signal representation", level=logging.DEBUG)
+        else: 
+            log.warning(f"TransferFunctionModel({self.name}): new_tf_numeric == None. Skipping signal representation")
+            
+        if new_tf_numeric is not None:
+            subsubheader(log, f"TransferFunctionModel({self.name}): Updating time-domain analysis", level=logging.DEBUG)
+            self.t_range = self._safe_update(
+                function=lambda: self.get_t_range(t_range=(),delay_time=0,n_tau=8,tol=1e-6),
+                component_name="self.t_range",
+                critical=True,
+                fallback_value=None)
+            
+            self.impulse_response = self._safe_update(
+                function=lambda: self.get_time_response(response_type='impulse', t_range=None, delay_time=0, n_points=500, tol=1e-6),
+                component_name="self.impulse_response",
+                critical=True,
+                fallback_value=None)
+            
+            self.step_response = self._safe_update(
+                function=lambda: self.get_time_response(response_type='step', t_range=None, delay_time=0, n_points=500, tol=1e-6),
+                component_name="self.step_response",
+                critical=True,
+                fallback_value=None)
+            
+            self.ramp_response = self._safe_update(
+                function=lambda: self.get_time_response(response_type='ramp', t_range=None, delay_time=0, n_points=500, tol=1e-6),
+                component_name="self.ramp_response",
+                critical=True,
+                fallback_value=None)
+            
+            subsubheader(log, f"TransferFunctionModel({self.name}): End of updating time-domain analysis", level=logging.DEBUG)
+        else: 
+            log.warning(f"TransferFunctionModel({self.name}): new_tf_numeric == None. Skipping time-domain analysis")
 
-            self.differential_equation.symbolic = utils_tf.get_differential_equation(self.symbolic, self.input, self.output, self.symbols)
-            self.differential_equation.numeric  = utils_tf.get_differential_equation(self.numeric, self.input, self.output, self.symbols)            
+        if new_tf_numeric is not None:
+            subsubheader(log, f"TransferFunctionModel({self.name}): Updating frequency-domain analysis", level=logging.DEBUG)
+            self.w_range = self._safe_update(
+                function=lambda: self.get_w_range(n_decades_above_w_max=2,n_decades_below_w_min=0),
+                component_name="self.w_range",
+                critical=True,
+                fallback_value=None)
+            
+            self.frequency_response = self._safe_update(
+                function=lambda: self.get_frequency_response(response_type='frequency', w_range=None, n_points=500),
+                component_name="self.frequency_response",
+                critical=True,
+                fallback_value=None)
+            
+            self.margin = self._safe_update(
+                function=lambda: self.get_margin(),
+                component_name="self.margin",
+                critical=True,
+                fallback_value=None)
+            
+            subsubheader(log, f"TransferFunctionModel({self.name}): End of updating frequency-domain analysis", level=logging.DEBUG)
+        else: 
+            log.debug(f"TransferFunctionModel({self.name}): new_tf_numeric == None. Skipping frequency-domain analysis")
 
-            # Define zeros 
-            self.zeros.symbolic         = utils_tf.get_zeros(self.symbolic)
-            self.zeros.numeric          = utils_tf.get_zeros(self.numeric)
+# ========================================================================
+# INITIALIZATION
+# ========================================================================
 
-            # Define poles
-            self.poles.symbolic         = utils_tf.get_poles(self.symbolic)
-            self.poles.numeric          = utils_tf.get_poles(self.numeric)
+    def __post_init__(self):
+        header(log,f"Initializing TransferFunctionModel({self.name})")
 
-            # Time-domain stuff
-            self.t_range                = self.get_t_range(t_range=(),delay_time=0,n_tau=8,tol=1e-6)
-            self.impulse_response       = self.get_time_response(response_type='impulse', t_range=None, delay_time=0, n_points=500, tol=1e-6)
-            self.step_response          = self.get_time_response(response_type='step', t_range=None, delay_time=0, n_points=500, tol=1e-6)
-            self.ramp_response          = self.get_time_response(response_type='ramp', t_range=None, delay_time=0, n_points=500, tol=1e-6)
+        # if self.global_symbols:
+        #     self.symbols = self.global_symbols.copy()
+        # if self.global_constants:
+        #     self.constants = self.global_constants.copy()
 
-            # # Frequency-domain stuff
-            self.w_range                = self.get_w_range(n_decades_above_w_max=2,n_decades_below_w_min=0)
-            self.frequency_response     = self.get_frequency_response(response_type='frequency', w_range=None, n_points=500)
-            self.margin                 = self.get_margin()
+        self.name = self.name.capitalize()
+        self.add_st()
+        self.define_tf_name(self.name)
+        self.define_input('u')
+        self.define_output('y')
+        subheader(log, f'TransferFunctionModel({self.name}): Initializing symbolic and numeric representations')
+        self.symbolic = self.initial_symbolic
+        self.numeric = self.initial_numeric
+       
 
+# ========================================================================
+# STRING REPRESENTATION
+# ========================================================================
     
     def __str__(self, indent: int = 2, name_width: int = 12, type_width: int = 30) -> str:
         pad_title = " " * indent
@@ -194,8 +436,7 @@ class TransferFunctionModel:
             f"----------------",
             f"{pad}{'symbolic:':<{name_width}} {str(type(self.symbolic)):>{type_width}} = {self.symbolic}",
             f"{pad}{'numeric:':<{name_width}} {str(type(self.numeric)):>{type_width}} = {self.numeric}",
-            # SIGNAL: The multiline signal text starts immediately after the equals sign
-            f"{pad}{'signal:':<{name_width}} {str(type(self.signal)):>{type_width}} = {signal_str}",
+            f"{pad}{'signal:':<{name_width}} {str(type(self.signal)):>{type_width}} = TransferFunctionContinuous(num={self.signal.num.tolist()}, den={self.signal.den.tolist()}, dt={self.signal.dt})",
             f"----------------",
         ])
         
@@ -227,108 +468,28 @@ class TransferFunctionModel:
         lines.append(f"{' ' * indent})")
         
         return "\n".join(lines)
-    # def __str__(self, indent: int = 2, name_width: int = 12, type_width: int = 30):
-    #     pad_title = " " * indent
-    #     pad = " " * (indent+2)
 
-    #     # Format basic fields
-    #     t_range_str = f"({self.t_range[0]:.3g}, {self.t_range[1]:.3g})" if self.t_range else "None"
-    #     w_range_str = f"({self.w_range[0]:.3g}, {self.w_range[1]:.3g})" if self.w_range else "None"
+# ========================================================================
+# DEFINITIONS
+# ========================================================================
 
-    #     def indent_multiline(text: str, pad: str) -> str:
-    #         lines = str(text).splitlines()
-    #         if len(lines) <= 1:
-    #             return text
-    #         return lines[0] + "\n" + "\n".join([pad + line for line in lines[1:]])
-        
-    #     def format_nested(attr_name, obj, indent, name_width, type_width):
-    #         pad = " " * (indent + 2)
-    #         header = f"{pad}{attr_name + ':':<{name_width}} {str(type(obj)):>{type_width}} ="
-    #         body = obj.__str__(indent=indent + 6, name_width=name_width, type_width=type_width)
-    #         return [header, body]
-            
-    #     # Prepare aligned signal string
-    #     signal_str = indent_multiline(
-    #         self.signal,
-    #         pad + " " * (name_width + type_width + 5)
-    #     )
-        
-    #     lines = [
-    #         f"{pad_title}TransferFunctionModel(",
-    #         f"{pad}{'name:':<{name_width}} {str(type(self.name)):>{type_width}} = {self.name}",
-    #         f"{pad}{'description:':<{name_width}} {str(type(self.description)):>{type_width}} = {self.description}",
-    #         f"----------------",
-    #         f"{pad}{'tf_name:':<{name_width}} {str(type(self.tf_name)):>{type_width}} = {self.tf_name}",
-    #         f"{pad}{'input:':<{name_width}} {str(type(self.input)):>{type_width}} = {self.input}",
-    #         f"{pad}{'output:':<{name_width}} {str(type(self.output)):>{type_width}} = {self.output}",
-    #         f"{pad}{'symbols:':<{name_width}} {str(type(self.symbols)):>{type_width}} = {self.symbols}",
-    #         f"{pad}{'constants:':<{name_width}} {str(type(self.constants)):>{type_width}} = {self.constants}",
-    #         f"{pad}{'functions:':<{name_width}} {str(type(self.functions)):>{type_width}} = {self.functions}",
-    #         f"----------------",
-    #         f"{pad}{'symbolic:':<{name_width}} {str(type(self.symbolic)):>{type_width}} = {self.symbolic}",
-    #         f"{pad}{'numeric:':<{name_width}} {str(type(self.numeric)):>{type_width}} = {self.numeric}",
-    #         f"{pad}{'signal:':<{name_width}} {str(type(self.signal)):>{type_width}} = {signal_str}",
-    #         f"----------------",
-    #         f"{pad}{'numerator:':<{name_width}} {str(type(self.numerator)):>{type_width}} =",
-    #         f"{self.numerator.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"{pad}{'denominator:':<{name_width}} {str(type(self.denominator)):>{type_width}} =",
-    #         f"{self.denominator.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"{pad}{'zeros:':<{name_width}} {str(type(self.zeros)):>{type_width}} =",
-    #         f"{self.zeros.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"{pad}{'poles:':<{name_width}} {str(type(self.poles)):>{type_width}} =",
-    #         f"{self.poles.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"----------------",
-    #         f"{pad}{'differential_equation:':<{name_width}} {str(type(self.differential_equation)):>{type_width}} =",
-    #         f"{self.differential_equation.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"----------------",
-    #         f"{pad}{'t_range:':<{name_width}} {str(type(self.t_range)):>{type_width}} = {t_range_str}",
-    #         f"{pad}{'impulse_response:':<{name_width}} {str(type(self.impulse_response)):>{type_width}} =",
-    #         f"{self.impulse_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"{pad}{'step_response:':<{name_width}} {str(type(self.step_response)):>{type_width}} =",
-    #         f"{self.step_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"{pad}{'ramp_response:':<{name_width}} {str(type(self.ramp_response)):>{type_width}} =",
-    #         f"{self.ramp_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"----------------",
-    #         f"{pad}{'w_range:':<{name_width}} {str(type(self.w_range)):>{type_width}} = {w_range_str}",
-    #         f"{pad}{'frequency_response:':<{name_width}} {str(type(self.frequency_response)):>{type_width}} =",
-    #         f"{self.frequency_response.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f"{pad}{'margin:':<{name_width}} {str(type(self.margin)):>{type_width}} =",
-    #         f"{self.margin.__str__(indent=indent+6, name_width=name_width, type_width=type_width)}",
-    #         f")"
-    #     ]
-    #     return "\n".join(lines)
-
-    def __post_init__(self):
-        # if self.global_symbols:
-        #     self.symbols = self.global_symbols.copy()
-        # if self.global_constants:
-        #     self.constants = self.global_constants.copy()
-
-        self.name = self.name.capitalize()
-        self.add_st()
-        self.define_tf_name(self.name)
-        self.define_input('u')
-        self.define_output('y')
-
-        self.symbolic = self.initial_symbolic
-        self.numeric = self.initial_numeric
-       
 ## I/O functions
     def define_input(
             self, 
             name: str) -> None:
+        subheader(log, f'TransferFunctionModel({self.name}): Defining input as {name}')
         try:
-            s = self.symbols['s']['symbol']
-            t = self.symbols['t']['symbol']
+            s = self.symbols['s'].symbol
+            t = self.symbols['t'].symbol
         except KeyError:
-            print("Error: SymPy symbols 's' and 't' must be defined in self.symbols before calling define_input.")
+            print(f"TransferFunctionModel({self.name}): Error! SymPy symbols 's' and 't' must be defined in self.symbols before calling define_input")
             return 
         
         ft_name = name.lower()
         Fs_name = name.capitalize() 
 
         if self.input and self.input[0].func.name.lower() == ft_name:
-            print(f"Warning: Input name '{name}' is the same as the existing input name.")
+            print(f"TransferFunctionModel({self.name}): Warning! Input name '{name}' is the same as the existing input name")
             return
 
         if self.input:
@@ -348,18 +509,19 @@ class TransferFunctionModel:
     def define_output(
             self, 
             name: str) -> None:
+        subheader(log, f'TransferFunctionModel({self.name}): Defining output as {name}')
         try:
-            s = self.symbols['s']['symbol']
-            t = self.symbols['t']['symbol']
+            s = self.symbols['s'].symbol
+            t = self.symbols['t'].symbol
         except KeyError:
-            print("Error: SymPy symbols 's' and 't' must be defined in self.symbols before calling define_output.")
+            print(f"TransferFunctionModel({self.name}): Error! SymPy symbols 's' and 't' must be defined in self.symbols before calling define_output")
             return 
         
         ft_name = name.lower()
         Fs_name = name.capitalize() 
 
         if self.output and self.output[0].func.name.lower() == ft_name:
-            print(f"Warning: Output name '{name}' is the same as the existing output name.")
+            print(f"TransferFunctionModel({self.name}): Warning! Output name '{name}' is the same as the existing output name")
             return
 
         if self.output:
@@ -379,18 +541,20 @@ class TransferFunctionModel:
     def define_tf_name(
             self, 
             name: str) -> None:
+        subheader(log, f'TransferFunctionModel({self.name}): Defining tf_name as {name}')
+
         try:
-            s = self.symbols['s']['symbol']
-            t = self.symbols['t']['symbol']
+            s = self.symbols['s'].symbol
+            t = self.symbols['t'].symbol
         except KeyError:
-            print("Error: SymPy symbols 's' and 't' must be defined in self.symbols before calling define_tf_name.")
+            print(f"TransferFunctionModel({self.name}): Error! SymPy symbols 's' and 't' must be defined in self.symbols before calling define_tf_name")
             return 
         
         ft_name = name.lower()
         Fs_name = name.capitalize() 
 
         if self.tf_name and self.tf_name[0].func.name.lower() == ft_name:
-            print(f"Warning: Name '{name}' is the same as the existing name.")
+            print(f"TransferFunctionModel({self.name}): Warning! Name '{name}' is the same as the existing name")
             return
 
         if self.tf_name:
@@ -411,43 +575,38 @@ class TransferFunctionModel:
     def add_st(
             self) -> None:
         if 's' not in self.symbols:
-            self.add_symbol('s', is_constant=False)
+            self.symbols['s'] = self.create_symbol('s', is_constant=False)
         if 't' not in self.symbols:
-            self.add_symbol('t', is_real=True, is_constant=False)
+            self.symbols['t'] = self.create_symbol('t', is_real=True, is_constant=False)
     
-    def add_symbol(
-            self, 
+    @staticmethod
+    def create_symbol(
             name: str, 
             description: str='None',
             is_real: bool=None, 
             is_positive: bool=None,
             is_constant: bool=False,
             is_global: bool=False) -> SymbolModel:
-        
-        if name in self.symbols:
-            print(f"Warning: Symbol '{name}' already exists.")
-            return
         symbol = sp.symbols(name, real = is_real, positive = is_positive)
-        self.symbols[name] = {
-            "symbol": symbol,
-            "description": description,
-            "is_real": is_real,
-            "is_positive": is_positive,
-            "is_constant": is_constant,
-            "is_global": is_global}        
-        return symbol
+        return SymbolModel(
+            symbol=symbol,
+            description=description,
+            is_real=is_real,
+            is_positive=is_positive,
+            is_constant=is_constant,
+            is_global=is_global)
     
     def remove_symbol(
             self, 
             name: str) -> None:
         
         if name not in self.symbols:
-            print(f"Warning: Symbol '{name}' not found.")
+            print(f"TransferFunctionModel({self.name}): Warning! Symbol '{name}' not found")
             return
         symbol_to_remove = self.symbols[name]
 
         if self.symbolic is not None and self.symbolic.has(symbol_to_remove):
-            print(f"Cannot remove symbol '{name}'. "
+            print(f"TransferFunctionModel({self.name}): Cannot remove symbol '{name}'. "
                 f"It is currently used in the symbolic transfer function: {self.symbolic}")
             return
         del self.symbols[name]
@@ -458,33 +617,57 @@ class TransferFunctionModel:
             name: str, 
             value: float, 
             description='None', 
-            unit='-', 
-            is_global=False) -> None:
+            unit='-') -> None:
+        subheader(log, f'TransferFunctionModel({self.name}): Adding constant {name} = {value} [{unit}]')
         
         if name in self.constants:
-            print(f"Warning: Symbol '{name}' already exists.")
+            print(f"TransferFunctionModel({self.name}): Warning! Constant '{name}' already exists in self.constants")
             return
-        symbol = self.add_symbol(name=name, is_real=True, is_constant=True, is_global=is_global)
-        self.constants[name] = {
-            "value": value,
-            "description": description,
-            "unit": f"{unit}",
-            "symbol": symbol,
-            "is_global": is_global}        
+        
+        if name in self.symbols:
+            print(f"TransferFunctionModel({self.name}): Warning! Name used for constant '{name}' already exists in self.symbol")
+            return
+        else:
+            self.symbols[name] = self.create_symbol(name=name, description=description, is_real=True, is_constant=True, is_global=False)
+
+        symbol = self.symbols[name].symbol
+
+        self.constants[name] = self.create_constant(name=name,value=value,symbol=symbol,description=description,unit=unit,is_global=False)
+
+    @staticmethod
+    def create_constant(
+            name: str, 
+            value: float, 
+            symbol: sp.Symbol=None,
+            description: str='None', 
+            unit: str='-', 
+            is_global=False) -> None:
+        
+        # Fallback
+        if symbol is None:
+            symbol = sp.Symbol(name, is_real=True)
+        
+        return ConstantModel(
+            value=float(value),
+            description=f"{description}",
+            unit=f"{unit}",
+            symbol=symbol,
+            is_global=is_global)     
         
     def remove_constant(
             self,
             name: str) -> None:
+        subheader(log, f'TransferFunctionModel({self.name}): Removing constant {name} from model {self.name}')
         
         if name not in self.constants:
-            print(f"Warning: Constant '{name}' not found.")
+            print(f"TransferFunctionModel({self.name}): Warning! Constant '{name}' not found")
             return
 
         constant_data = self.constants[name]
         symbol_to_remove = constant_data["symbol"]
 
         if self.symbolic is not None and self.symbolic.has(symbol_to_remove):
-            print(f"Cannot remove constant '{name}'. "
+            print(f"TransferFunctionModel({self.name}): Cannot remove constant '{name}'. "
                 f"It is currently used in the symbolic transfer function: {self.symbolic}")
             return
         
@@ -499,7 +682,7 @@ class TransferFunctionModel:
         # If the constant was marked as 'is_global', you would call a
         # global control system method here to unregister it.
         if constant_data.get('is_global'):
-            print(f"Cannot remove constant '{name}'. "
+            print(f"TransferFunctionModel({self.name}): Cannot remove constant '{name}'. "
                 f"It is a global constant: {self.symbolic}"
             )
             # self.control_system.remove_global_constant(name)
@@ -512,7 +695,7 @@ class TransferFunctionModel:
              # Assigning to the public property triggers the numeric setter cascade.
             self.numeric = self.symbolic.subs(self.get_constant_values())
             
-        print(f"Constant '{name}' successfully removed.")
+        print(f"TransferFunctionModel({self.name}): Constant '{name}' successfully removed")
 
     def edit_constant(
             self, 
@@ -521,25 +704,33 @@ class TransferFunctionModel:
             description='None', 
             unit='-', 
             is_global=False) -> None:
+        subheader(log, f'TransferFunctionModel({self.name}): Editing constant {name} = {value} [{unit}]')
+        
         if name in self.constants:
-            symbol = self.constants[name]['symbol']
+            # Reuse the existing symbol
+            symbol = self.constants[name].symbol
         else:
+            # If it doesn't exist, create a new symbol
             symbol = sp.symbols(name, real = True)
 
-        self.constants[name] = {
-            "value": value,
-            "description": description,
-            "unit": f"[{unit}]",
-            "symbol": symbol,
-            "is_global": is_global}
+        # Replace the old constant with a new ConstantModel object
+        self.constants[name] = self.create_constant(
+            name=name,
+            value=value,
+            description=description,
+            unit=unit,
+            is_global=is_global,
+            symbol=symbol)
         
         # Trigger an update of transfer function
         if self.symbolic is not None:
             self.numeric = self.symbolic.subs(self.get_constant_values())
 
-    def get_constant_values(
-            self) -> Dict[sp.Symbol,float]:
-        return {data["symbol"]: data["value"] for name, data in self.constants.items()}
+    def get_constant_values(self) -> Dict[sp.Symbol, float]:
+        constants_dict = {}
+        for name, data in self.constants.items():
+            constants_dict[data.symbol] = data.value
+        return constants_dict
 
 ## Transfer function functions
     def define_tf(
@@ -552,27 +743,36 @@ class TransferFunctionModel:
             define_tf(num_coefs=[1], den_coefs=[1, 1])      # from coefficients
             define_tf(lhs=..., rhs=...)                     # from differential equation
         """
+        header(log, f"TransferFunctionModel({self.name}): Defining transfer function")
         
         # Determine input type and get symbolic transfer function
         if len(args) == 1 and isinstance(args[0], str):
-            # From string
-            self.symbolic = utils_tf.from_string(args[0], self.symbols)
+            try:
+                # From string
+                subheader(log, f"TransferFunctionModel({self.name}): From string {args[0]}")
+                tf_symbolic = utils_tf.from_string(args[0], self.symbols)
+                self.symbolic = tf_symbolic
+            except (ValueError, KeyError, TypeError) as e:
+                log.error(f"TransferFunctionModel({self.name}): Failed to define symbolic transfer function from string '{args[0]}': {e}")
+                raise
             
         elif 'num_coefs' in kwargs and 'den_coefs' in kwargs:
             # From coefficients
             num_coefs = kwargs.get('num_coefs', [])
             den_coefs = kwargs.get('den_coefs', [])
+            subheader(log, f"TransferFunctionModel({self.name}): From coefficients num=[{num_coefs}], den=[{den_coefs}]")
             self.symbolic = utils_tf.from_coefs(num_coefs, den_coefs, self.constants)
             
         elif 'lhs' in kwargs and 'rhs' in kwargs:
             # From differential equation
             lhs = kwargs['lhs']
             rhs = kwargs['rhs']
+            subheader(log, f"TransferFunctionModel({self.name}): From differential equation {lhs} = {rhs}")
             self.symbolic = utils_tf.from_equation(lhs, rhs, self.input, self.output, self.constants)
             
         else:
             raise ValueError(
-                "Invalid arguments. Use one of:\n"
+                f"TransferFunctionModel({self.name}): Invalid arguments. Use one of:\n"
                 "  define_tf('string')  # e.g., '1/(s+1)'\n"
                 "  define_tf(num_coefs=[...], den_coefs=[...])\n"
                 "  define_tf(lhs=..., rhs=...)"
@@ -732,7 +932,7 @@ class TransferFunctionModel:
         elif response_type == 'ramp':
             info = self.get_ramp_response_info(t_vals, y_vals, r_vals, delay_time, tol)
         
-        return ResponseModel(  # Single unified return type
+        return ResponseModel( 
             t_vals=t_vals.tolist(), 
             y_vals=y_vals.tolist(),
             r_vals=r_vals.tolist(),
@@ -754,7 +954,7 @@ class TransferFunctionModel:
         if self.numeric == 1:
             F_vals = np.ones_like(w_vals, dtype=complex)
         else:
-            s = self.symbols['s']['symbol']
+            s = self.symbols['s'].symbol
             s_vals = 1j * w_vals
             F_func = sp.lambdify(s, self.numeric, modules=['numpy'])
             F_vals = F_func(s_vals)

@@ -2,7 +2,12 @@ from classes.class_control_system import ControlSystem
 
 cs = ControlSystem('test')
 
+# Import logger
+import logging
+from utilities.logger import get_logger, header, subheader, subsubheader
+#
 def main():
+
     # cs.add_global_constant('Kg',1)
 
     # cs.add_tf(name='G1')
@@ -41,32 +46,33 @@ def main():
     # # cs.components.tfs['Gol'].print_all()
     # # cs.components.tfs['Gol'].bode()
 
+    
     cs.add_tf(name='Gp',description='Plant')
     cs.components.tfs['Gp'].define_input('f')
     cs.components.tfs['Gp'].define_output('x')
     cs.components.tfs['Gp'].add_constant('a',1)
-    cs.components.tfs['Gp'].edit_constant('a',2)
-
     cs.components.tfs['Gp'].add_constant(   name        = 'K',
                                             value       = 1,
                                             description = 'Gain',
                                             unit        = '-'       )
-    
     cs.components.tfs['Gp'].add_constant(   name        = 'w_n',
                                             value       = 0.1,
                                             description = 'Natural frequency',
                                             unit        = 'rad/s'   )
-    
     cs.components.tfs['Gp'].add_constant(   name        = 'zeta',
                                             value       = 0.1,
                                             description = 'Damping coefficient',
                                             unit        = '-'                )
-    
+    # print(cs.components.tfs['Gp'])
+    cs.add_tf(name='Gp2',description='Plant2')
     cs.components.tfs['Gp'].define_tf('K*w_n**2/(s**2+2*zeta*w_n*s+w_n**2)')
-    # cs.components.tfs['Gp'].impulse(delay_times=[0,100],t_range=(),sweep_params={'Kg':[1,2]})
-    # cs.components.tfs['Gp'].bode(w_range=(),sweep_params={'Kg':[1,2]})
-    cs.components.tfs['Gp'].print_all()
-    print(cs.components.tfs['Gp'])
+    # print(cs.components.tfs['Gp'])
+    cs.components.tfs['Gp'].impulse(delay_times=[0,100],t_range=(),sweep_params={'K':[1,2]})
+    # cs.components.tfs['Gp'].step(sweep_params={'K':[1,2]})
+    # cs.components.tfs['Gp'].bode(w_range=(),sweep_params={'K':[1,2]})
+    # cs.components.tfs['Gp'].bode()
+    # cs.components.tfs['Gp'].print_all()
+    # print(cs.components.tfs['Gp'])
 
 
     # cs.components.tfs['Gp'].print_all()
@@ -99,13 +105,14 @@ def main():
     # # cs.bode(w_range=(0.1, 1000), sweep_params={'Kg': [1, 2]}) 
 
     # ## TODOS
+    # # Can we move some functions from model to class or utilities?
+    # # Add logs for utils_sympy
+    # # Fix global constants and class_control_system (perhaps rename?)
     # # make get_frequency_response_info
     # # cs.root_locus()
     # # more components
     # # how to connect components?
     # # how to simulate?
-    # # input delay_time and time_range to impulse, steps etc, update_tf() to make new responses, and plot
     
-
 if __name__ == "__main__":
     main()

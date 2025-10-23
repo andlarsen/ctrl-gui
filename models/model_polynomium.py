@@ -6,13 +6,18 @@ from dataclasses import dataclass, field
 from typing import Optional
 from models.model_coefficients import CoefficientsModel
 
+# Import logger
+import logging
+from utilities.logger import get_logger, header, subheader, subsubheader
+log = get_logger(__name__, level=logging.DEBUG, logfile='logs/main.log')
+
 @dataclass
 class PolynomiumModel:
     _symbolic: sp.Expr = field(default=sp.S.One, init=False, repr=False)
-    initial_symbolic: sp.Expr = None#field(default=sp.S.One)
+    initial_symbolic: sp.Expr = None
 
     _numeric: sp.Expr = field(default=sp.S.One, init=False, repr=False)
-    initial_numeric: sp.Expr = None#field(default=sp.S.One)
+    initial_numeric: sp.Expr = None
 
     coefficients: CoefficientsModel = field(default_factory=CoefficientsModel)
 
@@ -35,20 +40,26 @@ class PolynomiumModel:
 
     @property
     def symbolic(self) -> sp.Expr:
+        log.debug(f"Getting @property.symbolic")
         return self._symbolic
 
     @symbolic.setter
     def symbolic(self, new_expr: sp.Expr):
         self._symbolic = new_expr
         if new_expr is not None:
+            subsubheader(log, "Updating symbolic coefficients", level=logging.DEBUG)
             self.coefficients.symbolic = utils_tf.get_coefficients(new_expr)
+            subsubheader(log, "End of updating symbolic coefficients", level=logging.DEBUG)
 
     @property
     def numeric(self) -> sp.Expr:
+        log.debug(f"Getting @property.numeric")
         return self._numeric
 
     @numeric.setter
     def numeric(self, new_expr: sp.Expr):
         self._numeric = new_expr
         if new_expr is not None:
+            subsubheader(log, "Updating numeric coefficients", level=logging.DEBUG)
             self.coefficients.numeric = utils_tf.get_coefficients(new_expr)
+            subsubheader(log, "End of updating numeric coefficients", level=logging.DEBUG)

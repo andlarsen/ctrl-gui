@@ -18,9 +18,9 @@ class ControlSystem:
 
         self.components = ComponentsModel()
 
-    def update(self):
-        for tf_name, tf_instance in self.components.tfs.items():
-            tf_instance.update()
+    # def update(self):
+    #     for tf_name, tf_instance in self.components.tfs.items():
+    #         tf_instance.update()
 
     def add_tf(self,name,description=''):
         tf = TransferFunctionClass(name, description, self.global_symbols, self.global_constants)
@@ -66,10 +66,11 @@ class ControlSystem:
             name: str, 
             value: float, 
             description='None', 
-            unit='-') -> None:
+            unit='-', 
+            is_global=False) -> None:
         
         if name in self.global_constants:
-            print(f"Warning: Symbol '{name}' already exists.")
+            print(f"Warning: Constant '{name}' already exists.")
             return
         symbol = sp.symbols(name, real = True)
         self.global_symbols[name] = symbol
